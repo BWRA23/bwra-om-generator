@@ -1,0 +1,915 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BWRA Offering Memorandum Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0a; color: #e8e8e8; font-family: 'Inter', sans-serif; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  input, select, textarea { font-family: 'Inter', sans-serif; }
+  input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BWRA OM GENERATOR — Standalone App
+// ═══════════════════════════════════════════════════════════════════════════
+
+const { useState, useEffect, useRef, useCallback } = React;
+
+// Supabase config (same as CRM)
+const SB_URL = "https://khctptruikafdcxqsvvy.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtoY3RwdHJ1aWthZmRjeHFzdnZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDE1NjIwMTEsImV4cCI6MjA1NzEzODAxMX0.yVFKzSxfBPFSMo1_x-nb9YR82e0OAVE8z78LBJo0bYc";
+
+const TEAM = [
+  { name: "Bryce Marullo", title: "Partner", phone: "(504) 301-5583", email: "bryce@bridgewater.realty" },
+  { name: "Mason McCullough", title: "Partner", phone: "", email: "mason@bridgewater.realty" },
+  { name: "Cameron Griffin", title: "Agent", phone: "", email: "cameron@bridgewater.realty" },
+];
+
+// Brand palette
+const B = {
+  bg: "#0a0a0a", surface: "#111111", surface2: "#1a1a1a", surface3: "#222222",
+  red: "#dc2626", redDark: "#991b1b", redGlow: "rgba(220,38,38,.12)",
+  text: "#f1f1f1", muted: "#888888", sub: "#666666", border: "#2a2a2a",
+  green: "#22c55e", amber: "#f59e0b", blue: "#3b82f6",
+};
+
+// pptxgenjs brand colors (no # prefix!)
+const P = {
+  bg: "0A0A0A", surface: "111111", surface2: "1A1A1A", surface3: "222222",
+  red: "DC2626", redDark: "991B1B", white: "FFFFFF",
+  text: "F1F1F1", muted: "888888", sub: "666666", border: "2A2A2A",
+  green: "22C55E", amber: "F59E0B", blue: "3B82F6",
+};
+
+function fmt$(n) {
+  if (n === null || n === undefined || n === "") return "$0";
+  n = parseFloat(n) || 0;
+  if (n >= 1000000) return "$" + (n / 1000000).toFixed(2) + "M";
+  if (n >= 1000) return "$" + Math.round(n).toLocaleString();
+  return "$" + n.toLocaleString();
+}
+
+function fmtFull$(n) {
+  if (!n) return "$0";
+  return "$" + Math.round(parseFloat(n) || 0).toLocaleString();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PPTX GENERATOR — The actual slide builder
+// ═══════════════════════════════════════════════════════════════════════════
+
+function generateOMPPTX(data) {
+  const pres = new PptxGenJS();
+  pres.layout = "LAYOUT_16x9";
+  pres.author = "Bridgewater Realty Advisors";
+  pres.title = (data.propertyName || "Property") + " - Offering Memorandum";
+
+  const W = 10, H = 5.625;
+  const M = 0.6; // margin
+  const CW = W - M * 2; // content width
+
+  // Fresh shadow factory (pptxgenjs mutates objects!)
+  const shadow = () => ({ type: "outer", blur: 6, offset: 2, angle: 135, color: "000000", opacity: 0.2 });
+  const softShadow = () => ({ type: "outer", blur: 4, offset: 1, angle: 135, color: "000000", opacity: 0.12 });
+
+  // Reusable slide chrome
+  function addChrome(slide) {
+    slide.background = { color: P.bg };
+    slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: 0, w: W, h: 0.05, fill: { color: P.red } });
+    slide.addShape(pres.shapes.RECTANGLE, { x: 0, y: H - 0.05, w: W, h: 0.05, fill: { color: P.red } });
+    // Footer
+    slide.addText("BRIDGEWATER REALTY ADVISORS  |  CONFIDENTIAL", {
+      x: M, y: H - 0.35, w: CW, h: 0.25,
+      fontSize: 6, fontFace: "Arial", color: P.border,
+      charSpacing: 3, align: "center", margin: 0,
+    });
+  }
+
+  function addTitle(slide, text) {
+    slide.addText(text, {
+      x: M, y: 0.3, w: CW, h: 0.5,
+      fontSize: 24, fontFace: "Arial Black", color: P.white, margin: 0,
+    });
+    slide.addShape(pres.shapes.RECTANGLE, {
+      x: M, y: 0.82, w: 1.2, h: 0.04, fill: { color: P.red },
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 1: COVER
+  // ─────────────────────────────────────────────────────────────
+  const s1 = pres.addSlide();
+  addChrome(s1);
+
+  // Brand name
+  s1.addText("BRIDGEWATER", {
+    x: M, y: 0.55, w: CW, h: 0.5,
+    fontSize: 16, fontFace: "Arial Black", color: P.red,
+    charSpacing: 10, align: "center", margin: 0,
+  });
+  s1.addText("REALTY ADVISORS", {
+    x: M, y: 0.95, w: CW, h: 0.3,
+    fontSize: 9, fontFace: "Arial", color: P.muted,
+    charSpacing: 8, align: "center", margin: 0,
+  });
+
+  // Red divider
+  s1.addShape(pres.shapes.RECTANGLE, {
+    x: W / 2 - 0.6, y: 1.45, w: 1.2, h: 0.04, fill: { color: P.red },
+  });
+
+  // Property name
+  s1.addText((data.propertyName || "").toUpperCase(), {
+    x: M, y: 1.7, w: CW, h: 0.8,
+    fontSize: 36, fontFace: "Arial Black", color: P.white,
+    align: "center", margin: 0, shrinkText: true,
+  });
+
+  // Address
+  s1.addText(data.address + (data.city ? ", " + data.city : ""), {
+    x: M, y: 2.5, w: CW, h: 0.3,
+    fontSize: 13, fontFace: "Arial", color: P.muted,
+    align: "center", margin: 0,
+  });
+
+  // Key stats row
+  var coverStats = [
+    { label: "ASKING PRICE", value: fmt$(data.askingPrice) },
+    { label: "UNITS", value: String(data.units || "-") },
+    { label: "CAP RATE", value: data.capRate ? data.capRate + "%" : "-" },
+    { label: "PRICE / UNIT", value: fmt$(data.pricePerUnit || (data.units > 0 ? Math.round((data.askingPrice || 0) / data.units) : 0)) },
+  ];
+  var statW = 2.0, statGap = 0.25;
+  var totalW = coverStats.length * statW + (coverStats.length - 1) * statGap;
+  var startX = (W - totalW) / 2;
+
+  coverStats.forEach(function(st, i) {
+    var sx = startX + i * (statW + statGap);
+    s1.addShape(pres.shapes.RECTANGLE, {
+      x: sx, y: 3.15, w: statW, h: 1.1,
+      fill: { color: P.surface2 }, shadow: softShadow(),
+    });
+    s1.addText(st.label, {
+      x: sx, y: 3.25, w: statW, h: 0.25,
+      fontSize: 7, fontFace: "Arial", color: P.muted,
+      align: "center", charSpacing: 3, margin: 0,
+    });
+    s1.addText(st.value, {
+      x: sx, y: 3.5, w: statW, h: 0.55,
+      fontSize: 24, fontFace: "Arial Black", color: P.white,
+      align: "center", margin: 0,
+    });
+  });
+
+  // Confidential footer
+  s1.addText("CONFIDENTIAL OFFERING MEMORANDUM", {
+    x: M, y: 4.55, w: CW, h: 0.3,
+    fontSize: 7, fontFace: "Arial", color: P.border,
+    charSpacing: 5, align: "center", margin: 0,
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 2: OFFERING SUMMARY
+  // ─────────────────────────────────────────────────────────────
+  const s2 = pres.addSlide();
+  addChrome(s2);
+  addTitle(s2, "OFFERING SUMMARY");
+
+  var details = [
+    ["Property Name", data.propertyName],
+    ["Address", data.address + (data.city ? ", " + data.city : "")],
+    ["Property Type", data.propertyType || "Multifamily"],
+    ["Number of Units", String(data.units || "-")],
+    ["Year Built", String(data.yearBuilt || "-")],
+    ["Lot Size", data.lotSize || "-"],
+    ["Asking Price", fmtFull$(data.askingPrice)],
+    ["Price Per Unit", fmtFull$(data.pricePerUnit || (data.units > 0 ? Math.round((data.askingPrice || 0) / data.units) : 0))],
+    ["Cap Rate", data.capRate ? data.capRate + "%" : "-"],
+    ["Current Occupancy", data.occupancy ? data.occupancy + "%" : "-"],
+  ];
+
+  var colW2 = CW / 2;
+  details.forEach(function(row, i) {
+    var col = i % 2;
+    var rowIdx = Math.floor(i / 2);
+    var rx = M + col * colW2;
+    var ry = 1.1 + rowIdx * 0.52;
+    var bgC = rowIdx % 2 === 0 ? P.surface : P.bg;
+
+    s2.addShape(pres.shapes.RECTANGLE, {
+      x: rx, y: ry, w: colW2 - 0.08, h: 0.46,
+      fill: { color: bgC },
+    });
+    s2.addText(row[0], {
+      x: rx + 0.12, y: ry, w: 1.8, h: 0.46,
+      fontSize: 9, fontFace: "Arial", color: P.muted, valign: "middle", margin: 0,
+    });
+    s2.addText(row[1] || "-", {
+      x: rx + 1.9, y: ry, w: colW2 - 2.1, h: 0.46,
+      fontSize: 10, fontFace: "Arial", color: P.white, bold: true,
+      valign: "middle", align: "right", margin: 0,
+    });
+  });
+
+  // Description
+  if (data.description) {
+    s2.addText(data.description, {
+      x: M, y: 3.85, w: CW, h: 1.3,
+      fontSize: 9, fontFace: "Arial", color: P.muted,
+      lineSpacingMultiple: 1.6, margin: 0, valign: "top",
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 3: FINANCIAL OVERVIEW
+  // ─────────────────────────────────────────────────────────────
+  const s3 = pres.addSlide();
+  addChrome(s3);
+  addTitle(s3, "FINANCIAL OVERVIEW");
+
+  var finCards = [
+    { label: "NET OPERATING INCOME", value: fmtFull$(data.noi), color: P.green },
+    { label: "GROSS REVENUE", value: fmtFull$(data.grossRevenue), color: P.blue },
+    { label: "OPERATING EXPENSES", value: fmtFull$(data.expenses), color: P.amber },
+    { label: "EXPENSE RATIO", value: data.expenseRatio ? data.expenseRatio + "%" : "-", color: P.red },
+  ];
+
+  var cardW3 = (CW - 0.3) / 2;
+  var cardH3 = 1.25;
+  finCards.forEach(function(fc, i) {
+    var col = i % 2;
+    var row = Math.floor(i / 2);
+    var cx = M + col * (cardW3 + 0.3);
+    var cy = 1.1 + row * (cardH3 + 0.2);
+
+    s3.addShape(pres.shapes.RECTANGLE, {
+      x: cx, y: cy, w: cardW3, h: cardH3,
+      fill: { color: P.surface }, shadow: softShadow(),
+    });
+    s3.addShape(pres.shapes.RECTANGLE, {
+      x: cx, y: cy, w: 0.06, h: cardH3,
+      fill: { color: fc.color },
+    });
+    s3.addText(fc.label, {
+      x: cx + 0.22, y: cy + 0.2, w: cardW3 - 0.4, h: 0.25,
+      fontSize: 8, fontFace: "Arial", color: P.muted, charSpacing: 2, margin: 0,
+    });
+    s3.addText(fc.value, {
+      x: cx + 0.22, y: cy + 0.5, w: cardW3 - 0.4, h: 0.55,
+      fontSize: 28, fontFace: "Arial Black", color: P.white, margin: 0,
+    });
+  });
+
+  // Rent summary bar
+  if (data.avgRent || data.monthlyIncome) {
+    var rentRow = [
+      data.avgRent ? ["AVG RENT/UNIT", fmtFull$(data.avgRent) + "/mo"] : null,
+      data.monthlyIncome ? ["MONTHLY INCOME", fmtFull$(data.monthlyIncome)] : null,
+      data.annualIncome ? ["ANNUAL INCOME", fmtFull$(data.annualIncome)] : null,
+    ].filter(Boolean);
+
+    s3.addShape(pres.shapes.RECTANGLE, {
+      x: M, y: 3.95, w: CW, h: 0.75,
+      fill: { color: P.surface },
+    });
+    var riW = CW / rentRow.length;
+    rentRow.forEach(function(ri, i) {
+      s3.addText(ri[0], {
+        x: M + i * riW, y: 4.0, w: riW, h: 0.25,
+        fontSize: 7, fontFace: "Arial", color: P.muted, align: "center", charSpacing: 2, margin: 0,
+      });
+      s3.addText(ri[1], {
+        x: M + i * riW, y: 4.25, w: riW, h: 0.4,
+        fontSize: 16, fontFace: "Arial Black", color: P.white, align: "center", margin: 0,
+      });
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 4: RENT ROLL / UNIT MIX
+  // ─────────────────────────────────────────────────────────────
+  if (data.unitMix && data.unitMix.length > 0) {
+    const s4 = pres.addSlide();
+    addChrome(s4);
+    addTitle(s4, "UNIT MIX & RENT ROLL");
+
+    var headers = ["Unit Type", "# Units", "Sq Ft", "Monthly Rent", "Annual Total"];
+    var colWidths4 = [2.4, 1.2, 1.4, 1.8, 2.0];
+
+    var headerRow = headers.map(function(h, i) {
+      return {
+        text: h, options: {
+          fill: { color: P.red }, color: P.white, bold: true,
+          fontSize: 9, fontFace: "Arial", align: i > 0 ? "center" : "left",
+          margin: [5, 8, 5, 8],
+        }
+      };
+    });
+
+    var tableRows = [headerRow];
+    var totalUnits = 0, totalMonthly = 0;
+
+    data.unitMix.forEach(function(unit, idx) {
+      var rowBg = idx % 2 === 0 ? P.surface : P.bg;
+      var count = parseInt(unit.count) || 0;
+      var rent = parseFloat(unit.rent) || 0;
+      var annual = count * rent * 12;
+      totalUnits += count;
+      totalMonthly += count * rent;
+
+      tableRows.push([
+        { text: unit.type || "-", options: { fill: { color: rowBg }, color: P.white, fontSize: 10, fontFace: "Arial", margin: [5, 8, 5, 8] } },
+        { text: String(count), options: { fill: { color: rowBg }, color: P.white, fontSize: 10, fontFace: "Arial", align: "center", margin: [5, 8, 5, 8] } },
+        { text: unit.sqft ? unit.sqft + " sf" : "-", options: { fill: { color: rowBg }, color: P.muted, fontSize: 10, fontFace: "Arial", align: "center", margin: [5, 8, 5, 8] } },
+        { text: rent > 0 ? fmtFull$(rent) : "-", options: { fill: { color: rowBg }, color: P.white, fontSize: 10, fontFace: "Arial", align: "center", bold: true, margin: [5, 8, 5, 8] } },
+        { text: annual > 0 ? fmtFull$(annual) : "-", options: { fill: { color: rowBg }, color: P.green, fontSize: 10, fontFace: "Arial", align: "center", bold: true, margin: [5, 8, 5, 8] } },
+      ]);
+    });
+
+    // Totals row
+    tableRows.push([
+      { text: "TOTAL", options: { fill: { color: P.surface2 }, color: P.white, fontSize: 10, fontFace: "Arial", bold: true, margin: [5, 8, 5, 8] } },
+      { text: String(totalUnits), options: { fill: { color: P.surface2 }, color: P.white, fontSize: 10, fontFace: "Arial", align: "center", bold: true, margin: [5, 8, 5, 8] } },
+      { text: "", options: { fill: { color: P.surface2 }, margin: [5, 8, 5, 8] } },
+      { text: fmtFull$(totalMonthly) + "/mo", options: { fill: { color: P.surface2 }, color: P.green, fontSize: 10, fontFace: "Arial", align: "center", bold: true, margin: [5, 8, 5, 8] } },
+      { text: fmtFull$(totalMonthly * 12) + "/yr", options: { fill: { color: P.surface2 }, color: P.green, fontSize: 10, fontFace: "Arial", align: "center", bold: true, margin: [5, 8, 5, 8] } },
+    ]);
+
+    s4.addTable(tableRows, {
+      x: M, y: 1.05, w: CW,
+      colW: colWidths4,
+      border: { pt: 0.5, color: P.border },
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 5: OPERATING STATEMENT
+  // ─────────────────────────────────────────────────────────────
+  if (data.opStatement && data.opStatement.length > 0) {
+    const s5 = pres.addSlide();
+    addChrome(s5);
+    addTitle(s5, "OPERATING STATEMENT");
+
+    var opHeaders = [
+      { text: "", options: { fill: { color: P.red }, color: P.white, bold: true, fontSize: 9, fontFace: "Arial", margin: [4, 8, 4, 8] } },
+      { text: "Current", options: { fill: { color: P.red }, color: P.white, bold: true, fontSize: 9, fontFace: "Arial", align: "center", margin: [4, 8, 4, 8] } },
+      { text: "Pro Forma", options: { fill: { color: P.red }, color: P.white, bold: true, fontSize: 9, fontFace: "Arial", align: "center", margin: [4, 8, 4, 8] } },
+    ];
+
+    var opRows = [opHeaders];
+    data.opStatement.forEach(function(row, idx) {
+      var isTotal = (row.label || "").toUpperCase().includes("TOTAL") || (row.label || "").toUpperCase().includes("NOI") || (row.label || "").toUpperCase().includes("NET");
+      var rowBg = isTotal ? P.surface2 : (idx % 2 === 0 ? P.surface : P.bg);
+      var textColor = isTotal ? P.green : P.white;
+
+      opRows.push([
+        { text: row.label || "", options: { fill: { color: rowBg }, color: P.white, fontSize: 9, fontFace: "Arial", bold: isTotal, margin: [4, 8, 4, 8] } },
+        { text: row.current ? fmtFull$(row.current) : "-", options: { fill: { color: rowBg }, color: textColor, fontSize: 9, fontFace: "Arial", align: "center", bold: isTotal, margin: [4, 8, 4, 8] } },
+        { text: row.proforma ? fmtFull$(row.proforma) : "-", options: { fill: { color: rowBg }, color: textColor, fontSize: 9, fontFace: "Arial", align: "center", bold: isTotal, margin: [4, 8, 4, 8] } },
+      ]);
+    });
+
+    s5.addTable(opRows, {
+      x: M, y: 1.05, w: CW,
+      colW: [4.4, 2.2, 2.2],
+      border: { pt: 0.5, color: P.border },
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 6: LOCATION & MARKET
+  // ─────────────────────────────────────────────────────────────
+  const s6 = pres.addSlide();
+  addChrome(s6);
+  addTitle(s6, "LOCATION & MARKET");
+
+  var locPoints = data.locationHighlights && data.locationHighlights.length > 0
+    ? data.locationHighlights
+    : [
+      "Located in " + (data.city || "New Orleans, LA"),
+      (data.units || 0) + "-unit " + (data.propertyType || "multifamily") + " property",
+      "Current occupancy: " + (data.occupancy || 0) + "%",
+    ];
+
+  locPoints.forEach(function(pt, i) {
+    var ly = 1.1 + i * 0.6;
+    s6.addShape(pres.shapes.RECTANGLE, {
+      x: M, y: ly, w: CW, h: 0.52,
+      fill: { color: i % 2 === 0 ? P.surface : P.bg },
+    });
+    s6.addShape(pres.shapes.RECTANGLE, {
+      x: M, y: ly, w: 0.05, h: 0.52,
+      fill: { color: P.red },
+    });
+    s6.addText(pt, {
+      x: M + 0.22, y: ly, w: CW - 0.35, h: 0.52,
+      fontSize: 11, fontFace: "Arial", color: P.text, valign: "middle", margin: 0,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 7: INVESTMENT HIGHLIGHTS
+  // ─────────────────────────────────────────────────────────────
+  const s7 = pres.addSlide();
+  addChrome(s7);
+  addTitle(s7, "INVESTMENT HIGHLIGHTS");
+
+  var highlights = data.investmentHighlights && data.investmentHighlights.length > 0
+    ? data.investmentHighlights
+    : [
+      "Strong " + (data.capRate || 0) + "% cap rate in a growing market",
+      (data.occupancy || 0) + "% occupancy demonstrates stable demand",
+      "Value-add opportunity through strategic unit renovations",
+    ];
+
+  var hlColors = [P.red, P.blue, P.green, P.amber, P.red, P.blue];
+  highlights.forEach(function(hl, i) {
+    var hy = 1.1 + i * 0.82;
+    var hc = hlColors[i % hlColors.length];
+
+    // Numbered circle
+    s7.addShape(pres.shapes.OVAL, {
+      x: M, y: hy + 0.1, w: 0.42, h: 0.42, fill: { color: hc },
+    });
+    s7.addText(String(i + 1), {
+      x: M, y: hy + 0.1, w: 0.42, h: 0.42,
+      fontSize: 14, fontFace: "Arial Black", color: P.white,
+      align: "center", valign: "middle", margin: 0,
+    });
+    s7.addText(hl, {
+      x: M + 0.6, y: hy, w: CW - 0.75, h: 0.62,
+      fontSize: 12, fontFace: "Arial", color: P.text, valign: "middle", margin: 0,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // SLIDE 8: CONTACT
+  // ─────────────────────────────────────────────────────────────
+  const s8 = pres.addSlide();
+  addChrome(s8);
+
+  s8.addText("BRIDGEWATER", {
+    x: M, y: 0.7, w: CW, h: 0.5,
+    fontSize: 16, fontFace: "Arial Black", color: P.red,
+    charSpacing: 10, align: "center", margin: 0,
+  });
+  s8.addText("REALTY ADVISORS", {
+    x: M, y: 1.1, w: CW, h: 0.3,
+    fontSize: 9, fontFace: "Arial", color: P.muted,
+    charSpacing: 8, align: "center", margin: 0,
+  });
+
+  s8.addShape(pres.shapes.RECTANGLE, {
+    x: W / 2 - 0.6, y: 1.6, w: 1.2, h: 0.04, fill: { color: P.red },
+  });
+
+  s8.addText("FOR MORE INFORMATION, PLEASE CONTACT:", {
+    x: M, y: 1.85, w: CW, h: 0.3,
+    fontSize: 9, fontFace: "Arial", color: P.muted,
+    charSpacing: 3, align: "center", margin: 0,
+  });
+
+  var contacts = data.contacts && data.contacts.length > 0 ? data.contacts : TEAM;
+  var cW = 2.6, cGap = 0.25;
+  var cTotalW = contacts.length * cW + (contacts.length - 1) * cGap;
+  var cStartX = (W - cTotalW) / 2;
+
+  contacts.forEach(function(c, i) {
+    var cx = cStartX + i * (cW + cGap);
+    s8.addShape(pres.shapes.RECTANGLE, {
+      x: cx, y: 2.45, w: cW, h: 1.7,
+      fill: { color: P.surface }, shadow: softShadow(),
+    });
+    s8.addShape(pres.shapes.RECTANGLE, {
+      x: cx, y: 2.45, w: cW, h: 0.05, fill: { color: P.red },
+    });
+    s8.addText(c.name, {
+      x: cx, y: 2.65, w: cW, h: 0.35,
+      fontSize: 13, fontFace: "Arial Black", color: P.white, align: "center", margin: 0,
+    });
+    s8.addText((c.title || "").toUpperCase(), {
+      x: cx, y: 2.95, w: cW, h: 0.22,
+      fontSize: 8, fontFace: "Arial", color: P.red, align: "center", charSpacing: 2, margin: 0,
+    });
+    if (c.phone) {
+      s8.addText(c.phone, {
+        x: cx, y: 3.25, w: cW, h: 0.22,
+        fontSize: 10, fontFace: "Arial", color: P.muted, align: "center", margin: 0,
+      });
+    }
+    s8.addText(c.email, {
+      x: cx, y: c.phone ? 3.5 : 3.3, w: cW, h: 0.22,
+      fontSize: 10, fontFace: "Arial", color: P.muted, align: "center", margin: 0,
+    });
+  });
+
+  // Disclaimer
+  s8.addText("This Offering Memorandum has been prepared for informational purposes only. The information contained herein has been obtained from sources believed to be reliable; however, Bridgewater Realty Advisors makes no guarantees, warranties, or representations as to the completeness or accuracy thereof. Prospective buyers should conduct their own independent investigation.", {
+    x: M, y: 4.4, w: CW, h: 0.85,
+    fontSize: 6.5, fontFace: "Arial", color: P.border,
+    align: "center", lineSpacingMultiple: 1.5, margin: 0,
+  });
+
+  return pres;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REACT UI — The editor interface
+// ═══════════════════════════════════════════════════════════════════════════
+
+function App() {
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [listings, setListings] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [activeTab, setActiveTab] = useState("details");
+  const [saved, setSaved] = useState(false);
+
+  // OM Data
+  const [om, setOm] = useState({
+    propertyName: "", address: "", city: "", propertyType: "Multifamily",
+    units: "", yearBuilt: "", lotSize: "", askingPrice: "", pricePerUnit: "",
+    capRate: "", occupancy: "", noi: "", grossRevenue: "", expenses: "",
+    expenseRatio: "", avgRent: "", monthlyIncome: "", annualIncome: "",
+    description: "",
+    unitMix: [],
+    opStatement: [],
+    locationHighlights: [],
+    investmentHighlights: [],
+    contacts: TEAM.map(function(t) { return Object.assign({}, t); }),
+  });
+
+  const set = function(key, val) {
+    setOm(function(prev) { return Object.assign({}, prev, { [key]: val }); });
+  };
+
+  // Load listings from Supabase
+  useEffect(function() {
+    fetch(SB_URL + "/rest/v1/listings?select=*&order=created_at.desc", {
+      headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY },
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (Array.isArray(data)) {
+        var mapped = data.map(function(r) {
+          var o = {};
+          Object.keys(r).forEach(function(k) {
+            var ck = k.replace(/_([a-z])/g, function(_, c) { return c.toUpperCase(); });
+            o[ck] = r[k];
+          });
+          return o;
+        });
+        setListings(mapped);
+        // Check URL param
+        var params = new URLSearchParams(window.location.search);
+        var id = params.get("id") || params.get("listing");
+        if (id) {
+          var found = mapped.find(function(l) { return l.legacyId === id || l.id === id; });
+          if (found) {
+            loadListing(found);
+            setSelectedId(found.legacyId || found.id);
+          }
+        }
+      }
+      setLoading(false);
+    })
+    .catch(function() { setLoading(false); });
+  }, []);
+
+  function loadListing(l) {
+    var pu = l.units > 0 ? Math.round((parseFloat(l.askingPrice) || 0) / l.units) : 0;
+    setOm({
+      propertyName: l.name || "",
+      address: l.address || "",
+      city: l.city || "",
+      propertyType: l.type || "Multifamily",
+      units: l.units || "",
+      yearBuilt: l.yearBuilt || "",
+      lotSize: l.lotSize || "",
+      askingPrice: l.askingPrice || "",
+      pricePerUnit: l.pricePerUnit || pu || "",
+      capRate: l.capRate || "",
+      occupancy: l.occupancy || "",
+      noi: l.noi || "",
+      grossRevenue: l.grossRevenue || "",
+      expenses: l.expenses || "",
+      expenseRatio: l.expenseRatio || "",
+      avgRent: l.avgRent || "",
+      monthlyIncome: l.monthlyIncome || "",
+      annualIncome: l.annualIncome || "",
+      description: l.description || "",
+      unitMix: l.unitMix || [],
+      opStatement: l.opStatement || [],
+      locationHighlights: l.locationHighlights || [],
+      investmentHighlights: l.investmentHighlights || [],
+      contacts: TEAM.map(function(t) { return Object.assign({}, t); }),
+    });
+    setSelectedId(l.legacyId || l.id);
+  }
+
+  function handleGenerate() {
+    setGenerating(true);
+    try {
+      var pres = generateOMPPTX(om);
+      var filename = (om.propertyName || "Property").replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, "_") + "_OM.pptx";
+      pres.writeFile({ fileName: filename }).then(function() {
+        setGenerating(false);
+      });
+    } catch(e) {
+      alert("Error generating OM: " + e.message);
+      setGenerating(false);
+    }
+  }
+
+  // Styles
+  var inp = {
+    width: "100%", padding: "10px 12px", borderRadius: 8,
+    border: "1px solid " + B.border, backgroundColor: B.surface2,
+    color: B.text, fontSize: 13, outline: "none", boxSizing: "border-box",
+    fontFamily: "'Inter', sans-serif",
+  };
+  var lbl = function(text, sub) {
+    return React.createElement("div", { style: { marginBottom: 4 } },
+      React.createElement("span", { style: { fontSize: 10, fontWeight: 600, color: B.muted, textTransform: "uppercase", letterSpacing: "0.5px" } }, text),
+      sub ? React.createElement("span", { style: { fontSize: 9, color: B.sub, marginLeft: 6 } }, sub) : null
+    );
+  };
+
+  // Loading state
+  if (loading) {
+    return React.createElement("div", { style: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 12 } },
+      React.createElement("div", { style: { fontSize: 12, fontWeight: 700, color: B.red, letterSpacing: "0.15em" } }, "BRIDGEWATER REALTY ADVISORS"),
+      React.createElement("div", { style: { color: B.muted, fontSize: 13 } }, "Loading listings...")
+    );
+  }
+
+  var tabs = [
+    { id: "details", label: "Property Details" },
+    { id: "financial", label: "Financials" },
+    { id: "units", label: "Unit Mix" },
+    { id: "opstatement", label: "Operating Statement" },
+    { id: "highlights", label: "Highlights" },
+    { id: "contacts", label: "Contacts" },
+  ];
+
+  return React.createElement("div", { style: { minHeight: "100vh", display: "flex", flexDirection: "column" } },
+
+    // ── HEADER ──────────────────────────────────────────────────
+    React.createElement("div", { style: {
+      padding: "16px 24px", borderBottom: "1px solid " + B.border,
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      background: "linear-gradient(180deg, #111 0%, " + B.bg + " 100%)",
+    }},
+      React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 16 } },
+        React.createElement("div", null,
+          React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: B.red, letterSpacing: "0.12em", fontFamily: "'Barlow Condensed', sans-serif" } }, "BRIDGEWATER"),
+          React.createElement("div", { style: { fontSize: 8, color: B.sub, letterSpacing: "0.1em" } }, "REALTY ADVISORS")
+        ),
+        React.createElement("div", { style: { width: 1, height: 28, backgroundColor: B.border } }),
+        React.createElement("div", { style: { fontSize: 16, fontWeight: 700, color: B.text, fontFamily: "'Barlow Condensed', sans-serif" } }, "OFFERING MEMORANDUM GENERATOR")
+      ),
+      React.createElement("div", { style: { display: "flex", gap: 10 } },
+        React.createElement("select", {
+          value: selectedId || "",
+          onChange: function(e) {
+            var l = listings.find(function(x) { return (x.legacyId || x.id) === e.target.value; });
+            if (l) loadListing(l);
+          },
+          style: Object.assign({}, inp, { width: 280, fontSize: 12, padding: "8px 10px" }),
+        },
+          React.createElement("option", { value: "" }, "-- Select a listing --"),
+          listings.map(function(l) {
+            return React.createElement("option", { key: l.legacyId || l.id, value: l.legacyId || l.id }, l.name || "Untitled");
+          })
+        ),
+        React.createElement("button", {
+          onClick: handleGenerate,
+          disabled: generating || !om.propertyName,
+          style: {
+            padding: "10px 24px", borderRadius: 8, border: "none",
+            background: generating ? B.surface3 : B.red,
+            color: "white", fontSize: 13, fontWeight: 700, cursor: generating ? "default" : "pointer",
+            fontFamily: "'Barlow Condensed', sans-serif", letterSpacing: "0.5px",
+            opacity: (!om.propertyName && !generating) ? 0.4 : 1,
+          },
+        }, generating ? "Generating..." : "GENERATE PPTX")
+      )
+    ),
+
+    // ── MAIN CONTENT ──────────────────────────────────────────
+    React.createElement("div", { style: { flex: 1, display: "flex" } },
+
+      // ── TAB SIDEBAR ──
+      React.createElement("div", { style: {
+        width: 200, borderRight: "1px solid " + B.border,
+        padding: "12px 0", display: "flex", flexDirection: "column", gap: 2,
+        backgroundColor: B.surface,
+      }},
+        tabs.map(function(tab) {
+          var active = activeTab === tab.id;
+          return React.createElement("button", {
+            key: tab.id,
+            onClick: function() { setActiveTab(tab.id); },
+            style: {
+              padding: "10px 20px", border: "none", textAlign: "left",
+              backgroundColor: active ? B.redGlow : "transparent",
+              color: active ? B.red : B.muted,
+              fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
+              borderLeft: active ? "3px solid " + B.red : "3px solid transparent",
+              fontFamily: "'Inter', sans-serif",
+            },
+          }, tab.label);
+        }),
+
+        // Preview section
+        React.createElement("div", { style: { marginTop: "auto", padding: "16px 20px", borderTop: "1px solid " + B.border } },
+          React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: B.sub, letterSpacing: "0.5px", textTransform: "uppercase", marginBottom: 8 } }, "PREVIEW"),
+          React.createElement("div", { style: { fontSize: 18, fontWeight: 700, color: B.text, fontFamily: "'Barlow Condensed', sans-serif", lineHeight: 1.2 } }, om.propertyName || "No property selected"),
+          om.city && React.createElement("div", { style: { fontSize: 11, color: B.muted, marginTop: 4 } }, om.city),
+          om.askingPrice && React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: B.green, marginTop: 6, fontFamily: "'Barlow Condensed', sans-serif" } }, fmtFull$(om.askingPrice)),
+        )
+      ),
+
+      // ── EDITOR PANEL ──
+      React.createElement("div", { style: { flex: 1, padding: 28, overflowY: "auto", maxHeight: "calc(100vh - 60px)" } },
+
+        // DETAILS TAB
+        activeTab === "details" && React.createElement("div", { style: { maxWidth: 800, display: "flex", flexDirection: "column", gap: 16 } },
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 } },
+            React.createElement("div", { style: { gridColumn: "1 / -1" } }, lbl("Property Name"), React.createElement("input", { style: inp, value: om.propertyName, onChange: function(e) { set("propertyName", e.target.value); } })),
+            React.createElement("div", null, lbl("Address"), React.createElement("input", { style: inp, value: om.address, onChange: function(e) { set("address", e.target.value); } })),
+            React.createElement("div", null, lbl("City / State / Zip"), React.createElement("input", { style: inp, value: om.city, onChange: function(e) { set("city", e.target.value); } })),
+            React.createElement("div", null, lbl("Property Type"), React.createElement("select", { style: inp, value: om.propertyType, onChange: function(e) { set("propertyType", e.target.value); } },
+              ["Multifamily", "Retail", "Office", "Industrial", "Mixed Use", "Land", "Other"].map(function(t) { return React.createElement("option", { key: t, value: t }, t); })
+            )),
+            React.createElement("div", null, lbl("Number of Units"), React.createElement("input", { style: inp, type: "number", value: om.units, onChange: function(e) { set("units", e.target.value); } })),
+            React.createElement("div", null, lbl("Year Built"), React.createElement("input", { style: inp, value: om.yearBuilt, onChange: function(e) { set("yearBuilt", e.target.value); } })),
+            React.createElement("div", null, lbl("Lot Size"), React.createElement("input", { style: inp, value: om.lotSize, onChange: function(e) { set("lotSize", e.target.value); }, placeholder: "e.g. 0.25 acres" })),
+          ),
+          React.createElement("div", null, lbl("Property Description"), React.createElement("textarea", {
+            style: Object.assign({}, inp, { height: 120, resize: "vertical", lineHeight: 1.6 }),
+            value: om.description, onChange: function(e) { set("description", e.target.value); },
+            placeholder: "Describe the property, its features, location advantages, and investment appeal...",
+          })),
+        ),
+
+        // FINANCIAL TAB
+        activeTab === "financial" && React.createElement("div", { style: { maxWidth: 800, display: "flex", flexDirection: "column", gap: 16 } },
+          React.createElement("div", { style: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 } },
+            React.createElement("div", null, lbl("Asking Price", "$"), React.createElement("input", { style: inp, type: "number", value: om.askingPrice, onChange: function(e) { set("askingPrice", e.target.value); } })),
+            React.createElement("div", null, lbl("Price Per Unit", "$"), React.createElement("input", { style: inp, type: "number", value: om.pricePerUnit, onChange: function(e) { set("pricePerUnit", e.target.value); } })),
+            React.createElement("div", null, lbl("Cap Rate", "%"), React.createElement("input", { style: inp, type: "number", step: "0.1", value: om.capRate, onChange: function(e) { set("capRate", e.target.value); } })),
+            React.createElement("div", null, lbl("Net Operating Income", "$"), React.createElement("input", { style: inp, type: "number", value: om.noi, onChange: function(e) { set("noi", e.target.value); } })),
+            React.createElement("div", null, lbl("Gross Revenue", "$"), React.createElement("input", { style: inp, type: "number", value: om.grossRevenue, onChange: function(e) { set("grossRevenue", e.target.value); } })),
+            React.createElement("div", null, lbl("Operating Expenses", "$"), React.createElement("input", { style: inp, type: "number", value: om.expenses, onChange: function(e) { set("expenses", e.target.value); } })),
+            React.createElement("div", null, lbl("Expense Ratio", "%"), React.createElement("input", { style: inp, type: "number", step: "0.1", value: om.expenseRatio, onChange: function(e) { set("expenseRatio", e.target.value); } })),
+            React.createElement("div", null, lbl("Occupancy", "%"), React.createElement("input", { style: inp, type: "number", value: om.occupancy, onChange: function(e) { set("occupancy", e.target.value); } })),
+            React.createElement("div", null, lbl("Avg Rent/Unit", "$/mo"), React.createElement("input", { style: inp, type: "number", value: om.avgRent, onChange: function(e) { set("avgRent", e.target.value); } })),
+            React.createElement("div", null, lbl("Monthly Income", "$"), React.createElement("input", { style: inp, type: "number", value: om.monthlyIncome, onChange: function(e) { set("monthlyIncome", e.target.value); } })),
+            React.createElement("div", null, lbl("Annual Income", "$"), React.createElement("input", { style: inp, type: "number", value: om.annualIncome, onChange: function(e) { set("annualIncome", e.target.value); } })),
+          ),
+        ),
+
+        // UNIT MIX TAB
+        activeTab === "units" && React.createElement("div", { style: { maxWidth: 800, display: "flex", flexDirection: "column", gap: 14 } },
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: B.text } }, "Unit Mix"),
+            React.createElement("button", {
+              onClick: function() { set("unitMix", (om.unitMix || []).concat([{ type: "", count: "", sqft: "", rent: "" }])); },
+              style: { padding: "7px 16px", borderRadius: 6, border: "none", backgroundColor: B.red, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+            }, "+ Add Unit Type"),
+          ),
+          (om.unitMix || []).map(function(unit, i) {
+            return React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr auto", gap: 10, alignItems: "end" } },
+              React.createElement("div", null, i === 0 && lbl("Unit Type"), React.createElement("input", { style: inp, value: unit.type || "", placeholder: "e.g. 2BR/1BA", onChange: function(e) { var arr = om.unitMix.slice(); arr[i] = Object.assign({}, arr[i], { type: e.target.value }); set("unitMix", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("# Units"), React.createElement("input", { style: inp, type: "number", value: unit.count || "", onChange: function(e) { var arr = om.unitMix.slice(); arr[i] = Object.assign({}, arr[i], { count: e.target.value }); set("unitMix", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Sq Ft"), React.createElement("input", { style: inp, type: "number", value: unit.sqft || "", onChange: function(e) { var arr = om.unitMix.slice(); arr[i] = Object.assign({}, arr[i], { sqft: e.target.value }); set("unitMix", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Rent $/mo"), React.createElement("input", { style: inp, type: "number", value: unit.rent || "", onChange: function(e) { var arr = om.unitMix.slice(); arr[i] = Object.assign({}, arr[i], { rent: e.target.value }); set("unitMix", arr); } })),
+              React.createElement("button", {
+                onClick: function() { var arr = om.unitMix.slice(); arr.splice(i, 1); set("unitMix", arr); },
+                style: { padding: "10px 12px", borderRadius: 6, border: "1px solid " + B.border, backgroundColor: "transparent", color: B.muted, fontSize: 14, cursor: "pointer", marginBottom: 0 },
+              }, "\u00d7"),
+            );
+          }),
+          om.unitMix.length === 0 && React.createElement("div", { style: { textAlign: "center", padding: 40, color: B.sub, fontSize: 13, border: "1px dashed " + B.border, borderRadius: 8 } }, "No unit types added. Click \"+ Add Unit Type\" to start."),
+        ),
+
+        // OPERATING STATEMENT TAB
+        activeTab === "opstatement" && React.createElement("div", { style: { maxWidth: 800, display: "flex", flexDirection: "column", gap: 14 } },
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: B.text } }, "Operating Statement"),
+            React.createElement("button", {
+              onClick: function() { set("opStatement", (om.opStatement || []).concat([{ label: "", current: "", proforma: "" }])); },
+              style: { padding: "7px 16px", borderRadius: 6, border: "none", backgroundColor: B.red, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+            }, "+ Add Line"),
+          ),
+          React.createElement("div", { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
+            ["Gross Rental Income", "Vacancy Loss", "Effective Gross Income", "---", "Property Taxes", "Insurance", "Repairs & Maintenance", "Utilities", "Management Fees", "Landscaping", "Pest Control", "Miscellaneous", "---", "Total Operating Expenses", "NET OPERATING INCOME"].map(function(item, i) {
+              if (item === "---") return React.createElement("div", { key: i, style: { width: "100%" } });
+              return React.createElement("button", {
+                key: i,
+                onClick: function() {
+                  var exists = (om.opStatement || []).find(function(r) { return r.label === item; });
+                  if (!exists) set("opStatement", (om.opStatement || []).concat([{ label: item, current: "", proforma: "" }]));
+                },
+                style: { padding: "4px 10px", borderRadius: 4, border: "1px solid " + B.border, backgroundColor: B.surface2, color: B.muted, fontSize: 10, cursor: "pointer" },
+              }, item);
+            })
+          ),
+          (om.opStatement || []).map(function(row, i) {
+            return React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "2.5fr 1fr 1fr auto", gap: 10, alignItems: "end" } },
+              React.createElement("div", null, i === 0 && lbl("Line Item"), React.createElement("input", { style: inp, value: row.label || "", onChange: function(e) { var arr = om.opStatement.slice(); arr[i] = Object.assign({}, arr[i], { label: e.target.value }); set("opStatement", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Current $"), React.createElement("input", { style: inp, type: "number", value: row.current || "", onChange: function(e) { var arr = om.opStatement.slice(); arr[i] = Object.assign({}, arr[i], { current: e.target.value }); set("opStatement", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Pro Forma $"), React.createElement("input", { style: inp, type: "number", value: row.proforma || "", onChange: function(e) { var arr = om.opStatement.slice(); arr[i] = Object.assign({}, arr[i], { proforma: e.target.value }); set("opStatement", arr); } })),
+              React.createElement("button", {
+                onClick: function() { var arr = om.opStatement.slice(); arr.splice(i, 1); set("opStatement", arr); },
+                style: { padding: "10px 12px", borderRadius: 6, border: "1px solid " + B.border, backgroundColor: "transparent", color: B.muted, fontSize: 14, cursor: "pointer" },
+              }, "\u00d7"),
+            );
+          }),
+        ),
+
+        // HIGHLIGHTS TAB
+        activeTab === "highlights" && React.createElement("div", { style: { maxWidth: 800, display: "flex", flexDirection: "column", gap: 20 } },
+          // Location highlights
+          React.createElement("div", null,
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: B.text } }, "Location Highlights"),
+              React.createElement("button", {
+                onClick: function() { set("locationHighlights", (om.locationHighlights || []).concat([""])); },
+                style: { padding: "6px 14px", borderRadius: 6, border: "none", backgroundColor: B.red, color: "white", fontSize: 11, fontWeight: 700, cursor: "pointer" },
+              }, "+ Add"),
+            ),
+            (om.locationHighlights || []).map(function(hl, i) {
+              return React.createElement("div", { key: i, style: { display: "flex", gap: 8, marginBottom: 8 } },
+                React.createElement("input", { style: Object.assign({}, inp, { flex: 1 }), value: hl, placeholder: "e.g. Minutes from major employers...", onChange: function(e) { var arr = om.locationHighlights.slice(); arr[i] = e.target.value; set("locationHighlights", arr); } }),
+                React.createElement("button", { onClick: function() { var arr = om.locationHighlights.slice(); arr.splice(i, 1); set("locationHighlights", arr); }, style: { padding: "8px 12px", borderRadius: 6, border: "1px solid " + B.border, backgroundColor: "transparent", color: B.muted, cursor: "pointer" } }, "\u00d7"),
+              );
+            }),
+          ),
+          // Investment highlights
+          React.createElement("div", null,
+            React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 } },
+              React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: B.text } }, "Investment Highlights"),
+              React.createElement("button", {
+                onClick: function() { set("investmentHighlights", (om.investmentHighlights || []).concat([""])); },
+                style: { padding: "6px 14px", borderRadius: 6, border: "none", backgroundColor: B.red, color: "white", fontSize: 11, fontWeight: 700, cursor: "pointer" },
+              }, "+ Add"),
+            ),
+            (om.investmentHighlights || []).map(function(hl, i) {
+              return React.createElement("div", { key: i, style: { display: "flex", gap: 8, marginBottom: 8 } },
+                React.createElement("input", { style: Object.assign({}, inp, { flex: 1 }), value: hl, placeholder: "e.g. Strong cap rate with stable occupancy...", onChange: function(e) { var arr = om.investmentHighlights.slice(); arr[i] = e.target.value; set("investmentHighlights", arr); } }),
+                React.createElement("button", { onClick: function() { var arr = om.investmentHighlights.slice(); arr.splice(i, 1); set("investmentHighlights", arr); }, style: { padding: "8px 12px", borderRadius: 6, border: "1px solid " + B.border, backgroundColor: "transparent", color: B.muted, cursor: "pointer" } }, "\u00d7"),
+              );
+            }),
+          ),
+        ),
+
+        // CONTACTS TAB
+        activeTab === "contacts" && React.createElement("div", { style: { maxWidth: 800, display: "flex", flexDirection: "column", gap: 14 } },
+          React.createElement("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+            React.createElement("div", { style: { fontSize: 14, fontWeight: 700, color: B.text } }, "Contact Cards"),
+            React.createElement("button", {
+              onClick: function() { set("contacts", (om.contacts || []).concat([{ name: "", title: "", phone: "", email: "" }])); },
+              style: { padding: "7px 16px", borderRadius: 6, border: "none", backgroundColor: B.red, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+            }, "+ Add Contact"),
+          ),
+          (om.contacts || []).map(function(c, i) {
+            return React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1.5fr auto", gap: 10, alignItems: "end" } },
+              React.createElement("div", null, i === 0 && lbl("Name"), React.createElement("input", { style: inp, value: c.name || "", onChange: function(e) { var arr = om.contacts.slice(); arr[i] = Object.assign({}, arr[i], { name: e.target.value }); set("contacts", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Title"), React.createElement("input", { style: inp, value: c.title || "", onChange: function(e) { var arr = om.contacts.slice(); arr[i] = Object.assign({}, arr[i], { title: e.target.value }); set("contacts", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Phone"), React.createElement("input", { style: inp, value: c.phone || "", onChange: function(e) { var arr = om.contacts.slice(); arr[i] = Object.assign({}, arr[i], { phone: e.target.value }); set("contacts", arr); } })),
+              React.createElement("div", null, i === 0 && lbl("Email"), React.createElement("input", { style: inp, value: c.email || "", onChange: function(e) { var arr = om.contacts.slice(); arr[i] = Object.assign({}, arr[i], { email: e.target.value }); set("contacts", arr); } })),
+              React.createElement("button", {
+                onClick: function() { var arr = om.contacts.slice(); arr.splice(i, 1); set("contacts", arr); },
+                style: { padding: "10px 12px", borderRadius: 6, border: "1px solid " + B.border, backgroundColor: "transparent", color: B.muted, fontSize: 14, cursor: "pointer" },
+              }, "\u00d7"),
+            );
+          }),
+        ),
+
+      ),
+    ),
+  );
+}
+
+ReactDOM.render(React.createElement(App), document.getElementById("root"));
+</script>
+</body>
+</html>
