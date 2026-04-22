@@ -63,6 +63,12 @@ table.fin-table input{padding:4px 6px;font-size:12px;border-radius:4px}
 @keyframes spin{to{transform:rotate(360deg)}}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--green);color:#000;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:999;animation:fadeIn .3s}
 @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.search-dropdown{position:relative}
+.search-dropdown .dd-list{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-top:none;border-radius:0 0 6px 6px;max-height:280px;overflow-y:auto;z-index:50}
+.search-dropdown .dd-item{padding:8px 12px;cursor:pointer;font-size:12px;border-bottom:1px solid var(--border);transition:background .1s}
+.search-dropdown .dd-item:hover,.search-dropdown .dd-item.highlighted{background:var(--surface3)}
+.search-dropdown .dd-item .dd-sub{color:var(--muted);font-size:10px;margin-top:2px}
+.search-dropdown .dd-empty{padding:12px;color:var(--sub);font-size:12px;text-align:center}
 </style>
 </head>
 <body>
@@ -289,6 +295,59 @@ function PhotoUpload({value,onChange,label}){
 }
 
 // ════════════════════════════════════════════════════════
+// SEARCHABLE LISTING INPUT
+// ════════════════════════════════════════════════════════
+function SearchableListingInput({listings,value,onChange,loading}){
+  const[query,setQuery]=useState("");
+  const[open,setOpen]=useState(false);
+  const[highlightIdx,setHighlightIdx]=useState(-1);
+  const wrapRef=useRef(null);
+  const inputRef=useRef(null);
+
+  // Find selected listing name for display
+  const selectedListing=listings.find(l=>l.id===value);
+  const displayText=selectedListing?(selectedListing.name||selectedListing.address||"Untitled"):"";
+
+  // Filter listings by search query
+  const filtered=query.trim()?listings.filter(l=>{
+    const q=query.toLowerCase();
+    return (l.name||"").toLowerCase().includes(q)||(l.address||"").toLowerCase().includes(q)||(l.city||"").toLowerCase().includes(q)
+  }):listings;
+
+  // Close on outside click
+  useEffect(()=>{
+    function handleClick(e){if(wrapRef.current&&!wrapRef.current.contains(e.target))setOpen(false)}
+    document.addEventListener("mousedown",handleClick);
+    return()=>document.removeEventListener("mousedown",handleClick);
+  },[]);
+
+  function handleSelect(id){
+    setQuery("");setOpen(false);setHighlightIdx(-1);
+    onChange(id);
+  }
+
+  function handleKeyDown(e){
+    if(!open)return;
+    if(e.key==="ArrowDown"){e.preventDefault();setHighlightIdx(i=>Math.min(i+1,filtered.length-1))}
+    else if(e.key==="ArrowUp"){e.preventDefault();setHighlightIdx(i=>Math.max(i-1,0))}
+    else if(e.key==="Enter"&&highlightIdx>=0&&filtered[highlightIdx]){e.preventDefault();handleSelect(filtered[highlightIdx].id)}
+    else if(e.key==="Escape"){setOpen(false);setQuery("")}
+  }
+
+  return <div className="search-dropdown" ref={wrapRef}>
+    <input ref={inputRef} type="text" value={open?query:displayText} placeholder={loading?"Loading listings...":"Search listings by name, address, or city..."} onFocus={()=>{setOpen(true);setQuery("");setHighlightIdx(-1)}} onChange={e=>{setQuery(e.target.value);setHighlightIdx(-1);if(!open)setOpen(true)}} onKeyDown={handleKeyDown} style={{background:"var(--surface2)"}}/>
+    {value&&!open&&<button onClick={()=>{onChange("");setQuery("")}} style={{position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:"var(--muted)",cursor:"pointer",fontSize:14,padding:"2px 6px"}}>×</button>}
+    {open&&<div className="dd-list">
+      {filtered.length===0&&<div className="dd-empty">{query?"No listings match your search":"No listings found"}</div>}
+      {filtered.map((l,i)=><div key={l.id} className={"dd-item"+(i===highlightIdx?" highlighted":"")} onClick={()=>handleSelect(l.id)} onMouseEnter={()=>setHighlightIdx(i)}>
+        <div style={{fontWeight:600}}>{l.name||l.address||"Untitled"}</div>
+        <div className="dd-sub">{l.city||""}{l.units?" • "+l.units+" units":""}{l.asking_price?" • $"+Number(l.asking_price).toLocaleString():""}{l.status?" • "+l.status:""}</div>
+      </div>)}
+    </div>}
+  </div>
+}
+
+// ════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ════════════════════════════════════════════════════════
 function LoginScreen({onLogin}){
@@ -364,19 +423,19 @@ function App(){
   // Fetch CRM listings on login + load URL param listing
   useEffect(()=>{
     if(!user)return;
-    fetchListings();
-    // Delay slightly to ensure token is available in localStorage after fresh login
-    setTimeout(()=>{
-      const params=new URLSearchParams(window.location.search);
-      const id=params.get("id");
-      if(id){setSelectedListingId(id);loadListing(id)}
-    }, 300);
+    const params=new URLSearchParams(window.location.search);
+    const urlId=params.get("id");
+    // Fetch listings and then load URL param listing
+    (async()=>{
+      await fetchListings();
+      if(urlId){setSelectedListingId(urlId);await loadListing(urlId)}
+    })();
   },[user]);
 
   async function fetchListings(){
     setLoadingListings(true);
     try{
-      const data=await sbFetch("/rest/v1/listings?select=id,name,address,city,units,asking_price,price_per_unit,cap_rate,occupancy,status,market_status,assigned_to,type&order=created_at.desc",{headers:{"Prefer":"return=representation"}});
+      const data=await sbFetch("/rest/v1/listings?select=id,name,address,city,units,asking_price,price_per_unit,cap_rate,occupancy,status,market_status,assigned_to,type&order=created_at.desc");
       if(data&&Array.isArray(data))setCrmListings(data);
     }catch(e){console.log("Could not fetch listings:",e.message)}
     setLoadingListings(false);
@@ -385,7 +444,7 @@ function App(){
   async function loadListing(id){
     console.log("loadListing called with id:", id);
     try{
-      const listing=await sbFetch("/rest/v1/listings?id=eq."+id+"&select=*",{headers:{"Prefer":"return=representation"}});
+      const listing=await sbFetch("/rest/v1/listings?id=eq."+id+"&select=*");
       console.log("loadListing result:", listing ? listing.length + " records" : "null");
       if(listing&&listing[0]){
         const l=listing[0];
@@ -396,14 +455,16 @@ function App(){
         setCityStateZip(l.city||"");
         setUnitDescription((l.units?l.units+"-Unit ":"")+(l.type||"Multifamily")+" Property");
         setPropertyLabel(l.name||"");
-        // Auto-populate summary metrics from listing data
-        const newPairs=[...summaryPairs];
-        if(l.asking_price){newPairs[0]={...newPairs[0],left:{label:"LIST PRICE",value:"$"+Number(l.asking_price).toLocaleString()}}}
-        if(l.units){newPairs[0]={...newPairs[0],right:{label:"UNIT COUNT",value:String(l.units)}}}
-        if(l.price_per_unit){newPairs[1]={...newPairs[1],left:{label:"PRICE PER UNIT",value:"$"+Number(l.price_per_unit).toLocaleString()}}}
-        if(l.cap_rate){newPairs[3]={...newPairs[3],left:{label:"IN PLACE CAP RATE",value:l.cap_rate+"%"}}}
-        if(l.occupancy){newPairs[3]={...newPairs[3],right:{...newPairs[3].right,label:"OCCUPANCY",value:l.occupancy+"%"}}}
-        setSummaryPairs(newPairs);
+        // Auto-populate summary metrics — use functional update to avoid stale closure
+        setSummaryPairs(prev=>{
+          const np=[...prev];
+          if(l.asking_price){np[0]={...np[0],left:{label:"LIST PRICE",value:"$"+Number(l.asking_price).toLocaleString()}}}
+          if(l.units){np[0]={...np[0],right:{label:"UNIT COUNT",value:String(l.units)}}}
+          if(l.price_per_unit){np[1]={...np[1],left:{label:"PRICE PER UNIT",value:"$"+Number(l.price_per_unit).toLocaleString()}}}
+          if(l.cap_rate){np[3]={...np[3],left:{label:"IN PLACE CAP RATE",value:l.cap_rate+"%"}}}
+          if(l.occupancy){np[3]={...np[3],right:{...np[3].right,label:"OCCUPANCY",value:l.occupancy+"%"}}}
+          return np;
+        });
         // Auto-select assigned agents
         if(l.assigned_to&&Array.isArray(l.assigned_to)){
           const agentIds=l.assigned_to.map(name=>{const found=BW_AGENTS.find(a=>a.name.toLowerCase().includes(name.toLowerCase())||a.id===name.toLowerCase());return found?found.id:null}).filter(Boolean);
@@ -514,11 +575,7 @@ function App(){
         <div className="card" style={{marginBottom:20,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:250}}>
             <label>Import from CRM</label>
-            <select value={selectedListingId} onChange={e=>handleImportListing(e.target.value)} style={{background:"var(--surface2)"}}>
-              <option value="">— Select a listing —</option>
-              {loadingListings&&<option disabled>Loading listings...</option>}
-              {crmListings.map(l=><option key={l.id} value={l.id}>{l.name||l.address||"Untitled"} — {l.city||""}{l.units?" ("+l.units+" units)":""}</option>)}
-            </select>
+            <SearchableListingInput listings={crmListings} value={selectedListingId} onChange={handleImportListing} loading={loadingListings}/>
           </div>
           <div style={{display:"flex",gap:8,paddingTop:16}}>
             <button className="btn-dark btn-sm" onClick={fetchListings} disabled={loadingListings}>{loadingListings?"Refreshing...":"↻ Refresh"}</button>
