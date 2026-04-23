@@ -1715,15 +1715,8 @@ const AgentAvatar = ({ name, photo, size = 32, style = {} }) => {
         fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
         fontFamily: "sans-serif", letterSpacing: ".5px", ...style }}>{initials}</div>;
 };
-const canSeeBuyer = (buyer, user) => {
-  if (isPartner(user)) return true;
-  const assigned = Array.isArray(buyer.assignedTo) ? buyer.assignedTo : [buyer.assignedTo];
-  return assigned.includes(user) || (buyer.sharedWith || []).includes(user);
-};
-const canSeeListing = (listing, user) => {
-  if (isPartner(user)) return true;
-  return (listing.assignedTo || []).includes(user) || (listing.sharedWith || []).includes(user);
-};
+const canSeeBuyer = (buyer, user) => { return true; };
+const canSeeListing = (listing, user) => { return true; };
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 function BridgewaterIcon({ size = 36 }) {
@@ -2063,7 +2056,7 @@ function BuyersList({ buyers, setBuyers, subcategories, setSubcategories, setSel
             <span style={{ fontSize: 10, opacity: 0.7 }}>({buyers.filter(b => canSeeBuyer(b, currentUser) && (Array.isArray(b.subcategories) ? b.subcategories.includes(s.name) : b.subcategory === s.name)).length})</span>
           </button>
         ))}
-        {partner && (
+        {(
           <button onClick={() => setShowManageLists(true)} style={{ padding: "5px 10px", borderRadius: 6, border: \`1px dashed \${C.border}\`, fontSize: 12, cursor: "pointer", backgroundColor: "transparent", color: C.muted, display: "flex", alignItems: "center", gap: 4 }}>
             + Manage Lists
           </button>
@@ -2077,7 +2070,7 @@ function BuyersList({ buyers, setBuyers, subcategories, setSubcategories, setSel
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search buyers, locations..." style={{ width: "100%", backgroundColor: C.surface2, border: \`1px solid \${C.border}\`, borderRadius: 8, padding: "10px 12px 10px 36px", color: C.text, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          {partner && (
+          {(
             <select value={filterAgent} onChange={e => setFilterAgent(e.target.value)} style={{ flex: 1, backgroundColor: C.surface2, border: \`1px solid \${C.border}\`, borderRadius: 8, padding: "8px 10px", color: C.sub, fontSize: 13, outline: "none" }}>
               <option value="All">All Agents</option>
               {TEAM.map(t => <option key={t}>{t}</option>)}
@@ -2117,7 +2110,7 @@ function BuyersList({ buyers, setBuyers, subcategories, setSubcategories, setSel
                   <div style={{ ...sty.muted, fontSize: 11 }}>→ {(Array.isArray(b.assignedTo) ? b.assignedTo : [b.assignedTo]).join(", ")}</div>
                   {b.sharedWith?.length > 0 && <span style={{ fontSize: 10, color: C.blue }}>Shared ({b.sharedWith.length})</span>}
                   {b.ndaSigned?.length > 0 && <span style={{ fontSize: 10, color: C.green }}>✅ NDA</span>}
-                  {partner && (
+                  {(
                     <button onClick={e => { e.stopPropagation(); setShareTarget(b); }} style={{ background: "none", border: \`1px solid \${C.border}\`, borderRadius: 5, padding: "2px 7px", cursor: "pointer", color: C.muted, fontSize: 11, display: "flex", alignItems: "center", gap: 3 }}>
                       <Share2 size={10} /> Share
                     </button>
@@ -2130,7 +2123,7 @@ function BuyersList({ buyers, setBuyers, subcategories, setSubcategories, setSel
       </div>
 
       {showManageLists && <ManageListsModal subcategories={subcategories} setSubcategories={setSubcategories} onClose={() => setShowManageLists(false)} />}
-      {shareTarget && partner && (
+      {shareTarget && (
         <ShareModal item={shareTarget} itemType="buyer" currentUser={currentUser} onClose={() => setShareTarget(null)} onSave={(sw) => updateShare(shareTarget.id, sw)} />
       )}
     </div>
@@ -4252,7 +4245,7 @@ function ListingsList({ listings, setListings, buyers, setSelectedListing, setVi
                   {l.sharedWith?.length > 0 && <span style={{ fontSize: 10, color: C.blue }}>Shared ({l.sharedWith.length})</span>}
                   {l.source && l.source !== "Manual" && l.mlsId && <span style={{ fontSize: 10, fontWeight: 600, color: (SERVICE_META[l.source] || {}).color || C.muted }}>{l.source}</span>}
                   <div style={{ ...sty.muted, fontSize: 11, marginTop: 2 }}>{l.assignedTo?.join(", ")}</div>
-                  {partner && (
+                  {(
                     <button onClick={e => { e.stopPropagation(); setShareTarget(l); }} style={{ background: "none", border: \`1px solid \${C.border}\`, borderRadius: 5, padding: "2px 7px", cursor: "pointer", color: C.muted, fontSize: 11, display: "flex", alignItems: "center", gap: 3, marginTop: 2 }}>
                       <Share2 size={10} /> Share
                     </button>
@@ -4264,7 +4257,7 @@ function ListingsList({ listings, setListings, buyers, setSelectedListing, setVi
         })}
       </div>
 
-      {shareTarget && partner && (
+      {shareTarget && (
         <ShareModal item={shareTarget} itemType="listing" currentUser={currentUser} onClose={() => setShareTarget(null)} onSave={(sw) => { updateShare(shareTarget.id, sw); setShareTarget(null); }} />
       )}
       {showAddListing && (
@@ -4597,13 +4590,13 @@ function ListingDetail({ listing, buyers, comms, goBack, setBuyers, setListings,
                   <RefreshCw size={11} /> Sync {listing.source}
                 </button>
               )}
-              {partner && (
+              {(
                 <button onClick={() => setShowEdit(true)}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 7, border: \`1px solid \${C.border}\`, backgroundColor: C.surface2, color: C.text, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                   <Edit size={11} /> Edit Listing
                 </button>
               )}
-              {partner && onGenerateOM && (<>
+              {onGenerateOM && (<>
                 <button onClick={() => onGenerateOM(listing.id)}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 7, border: "1px solid #dc2626", backgroundColor: "rgba(220,38,38,.1)", color: "#dc2626", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                   <BookOpen size={11} /> Generate OM
@@ -4626,7 +4619,7 @@ function ListingDetail({ listing, buyers, comms, goBack, setBuyers, setListings,
                 </button>
               )}
             </div>
-            {partner && (
+            {(
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {(function() {
                   var isLease = listing.listingMode === "lease";
@@ -5971,7 +5964,7 @@ function TransactionCoordinatorView({ listings, setListings, buyers, currentUser
                 )}
 
                 {/* Status actions */}
-                {partner && (
+                {(
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <button onClick={() => changeStatus(l.id, "Active")}
                       style={{ flex: 1, padding: "9px", borderRadius: 8, border: \`1px solid \${C.border}\`, backgroundColor: "transparent", color: C.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -6638,7 +6631,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
   const exportCSV = () => {
     const year = parseInt(exportYear);
     let rows = commissionRequests.filter(r => r.status === "approved" && new Date(r.reviewedAt || r.submittedAt).getFullYear() === year);
-    if (!partner) rows = rows.filter(r => r.submittedBy === currentUser || Object.keys(r.splits || {}).includes(currentUser));
+    // All users can see all commission requests
     else if (exportAgent !== "all") rows = rows.filter(r => r.submittedBy === exportAgent || Object.keys(r.splits || {}).includes(exportAgent));
 
     const headers = ["Date Approved","Listing Name","City","Units","Sale Price","Gross Comm %","Total GCI","Our Side GCI","Brokerage Revenue","Agent Pool","Deal Type","Submitted By","Approved By","Agent","Agent Split %","Agent Earnings","Notes"];
@@ -6648,7 +6641,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
       const listing = getListingById(req.listingId);
       const { sp, gross, ourSide, brokerageKeep, agentPool } = calcDeal(req);
       const agents = Object.keys(req.splits || {});
-      const agentsToShow = (!partner && exportAgent !== "all") ? [exportAgent] : agents.length > 0 ? agents : [req.submittedBy];
+      const agentsToShow = agents.length > 0 ? agents : [req.submittedBy];
       agentsToShow.forEach(agent => {
         const pct = parseFloat(req.splits?.[agent] || 0);
         const earnings = agentPool * (pct / 100);
@@ -6832,7 +6825,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
             style={{ backgroundColor: C.surface2, border: \`1px solid \${C.border}\`, borderRadius: 7, padding: "6px 10px", color: C.text, fontSize: 12, outline: "none" }}>
             {[currentYear, currentYear-1, currentYear-2].map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          {partner && (
+          {(
             <select value={exportAgent} onChange={e => setExportAgent(e.target.value)}
               style={{ backgroundColor: C.surface2, border: \`1px solid \${C.border}\`, borderRadius: 7, padding: "6px 10px", color: C.text, fontSize: 12, outline: "none" }}>
               <option value="all">All Agents</option>
@@ -6843,7 +6836,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", backgroundColor: C.surface2, border: \`1px solid \${C.border}\`, borderRadius: 7, color: C.text, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
             <Download size={13} /> Export Excel
           </button>
-          {!partner && closedListings.length > 0 && (
+          {closedListings.length > 0 && (
             <button onClick={() => setEditingId(closedListings[0]?.id)}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", backgroundColor: C.red, border: "none", borderRadius: 7, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
               + Submit Commission
@@ -6865,7 +6858,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
       </div>
 
       {/* ── Partner: Pending Requests ─────────────────────────────────────── */}
-      {partner && tab === "pending" && (
+      {tab === "pending" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {pending.length === 0 ? (
             <div style={{ ...sty.surf2, border: \`1px dashed \${C.border}\`, borderRadius: 12, padding: 40, textAlign: "center" }}>
@@ -6878,7 +6871,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
       )}
 
       {/* ── Partner: All Commissions ──────────────────────────────────────── */}
-      {partner && tab === "all" && (
+      {tab === "all" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {/* Summary stats */}
           {approvedReqs.length > 0 && (
@@ -6910,7 +6903,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
       )}
 
       {/* ── Partner: Leaderboard ──────────────────────────────────────────── */}
-      {partner && tab === "leaderboard" && (
+      {tab === "leaderboard" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {approvedReqs.length === 0 ? (
             <div style={{ ...sty.surf2, border: \`1px dashed \${C.border}\`, borderRadius: 12, padding: 40, textAlign: "center" }}>
@@ -6947,7 +6940,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
       )}
 
       {/* ── Agent: My Requests ────────────────────────────────────────────── */}
-      {!partner && tab === "my_requests" && (
+      {tab === "my_requests" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {myReqs.length === 0 ? (
             <div style={{ ...sty.surf2, border: \`1px dashed \${C.border}\`, borderRadius: 12, padding: 40, textAlign: "center" }}>
@@ -6979,7 +6972,7 @@ function CommissionTrackerView({ listings, currentUser, commissions, setCommissi
       )}
 
       {/* ── Agent: My Earnings ────────────────────────────────────────────── */}
-      {!partner && tab === "my_earnings" && (
+      {tab === "my_earnings" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {(() => {
             const myApproved = approvedReqs.filter(r => r.submittedBy === currentUser || Object.keys(r.splits||{}).includes(currentUser));
@@ -7079,7 +7072,7 @@ function ClosedDealsView({ listings, setListings, currentUser, onOpenListing, co
   // writes a compressed JSON snapshot to Cloudflare R2 with AES-256 encryption
   // and a 5-year retention policy. The prototype saves the snapshot locally.
   const checkYearEndClear = React.useCallback(async () => {
-    if (!partner) return;           // only partners can trigger archive
+    // Archive available to all users
     if (closedListings.length === 0) return;
 
     const now = new Date();
@@ -7258,7 +7251,7 @@ function ClosedDealsView({ listings, setListings, currentUser, onOpenListing, co
                     </button>
                   );
                 })()}
-                {partner && (
+                {(
                   <button onClick={e => { e.stopPropagation(); changeStatus(l.id, "Under Contract"); }}
                     style={{ background: "none", border: \`1px solid \${C.border}\`, borderRadius: 6, padding: "5px 9px", cursor: "pointer", color: C.muted, fontSize: 11, display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
                     <RefreshCw size={10} /> Reopen
@@ -7271,7 +7264,7 @@ function ClosedDealsView({ listings, setListings, currentUser, onOpenListing, co
       </div>
 
       {/* Prior year archive history - partners only */}
-      {partner && archiveHistory.length > 0 && (
+      {archiveHistory.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ ...sty.muted, fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", paddingTop: 8, borderTop: \`1px solid \${C.border}\` }}>Archive History</div>
           {[...archiveHistory].reverse().map(entry => (
@@ -7594,7 +7587,7 @@ function CalendarView({ events, setEvents, buyers, listings, currentUser = "Bryc
       {/* Agent Visibility Toggles */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ ...sty.muted, fontSize: 11, marginRight: 2 }}>Viewing:</span>
-        {TEAM.filter(a => isPartner || a === currentUser).map(agent => (
+        {TEAM.filter(a => true).map(agent => (
           <button key={agent} onClick={() => setVisibleAgents(p => ({ ...p, [agent]: !p[agent] }))} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 6, border: \`1px solid \${visibleAgents[agent] ? agentColor(agent) : C.border}\`, backgroundColor: visibleAgents[agent] ? agentColor(agent) + "18" : "transparent", color: visibleAgents[agent] ? agentColor(agent) : C.muted, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
             <span style={{ width: 7, height: 7, borderRadius: 99, backgroundColor: visibleAgents[agent] ? agentColor(agent) : C.border, display: "inline-block", flexShrink: 0 }} />
             {agent}
@@ -13847,7 +13840,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
                             </div>
                           </div>
                         </div>
-                        {partner && (
+                        {(
                           <button onClick={() => disconnect(acct.email)} style={{ padding: "5px 10px", borderRadius: 6, border: \`1px solid \${C.border}\`, backgroundColor: "transparent", color: C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                             <WifiOff size={10} /> Disconnect
                           </button>
@@ -13859,7 +13852,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
               )}
 
               {/* Connect new account - partners only */}
-              {partner && (
+              {(
                 <div>
                   <div style={{ ...sty.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Add Account</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -13883,12 +13876,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
                 </div>
               )}
 
-              {!partner && (
-                <div style={{ ...sty.surf2, border: \`1px solid \${C.border}\`, borderRadius: 10, padding: 14, display: "flex", gap: 8, alignItems: "center" }}>
-                  <Lock size={14} color={C.muted} />
-                  <span style={{ ...sty.muted, fontSize: 12 }}>Only Partners can connect or disconnect email accounts.</span>
-                </div>
-              )}
+
             </div>
           )}
 
@@ -14003,7 +13991,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
                               </div>
                             </div>
                           </div>
-                          {partner && (
+                          {(
                             <button onClick={() => setConnectedPhones(prev => prev.filter(p => p.number !== ph.number))}
                               style={{ padding: "5px 10px", borderRadius: 6, border: \`1px solid \${C.border}\`, backgroundColor: "transparent", color: C.muted, fontSize: 11, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                               <WifiOff size={10} /> Disconnect
@@ -14017,7 +14005,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
               )}
 
               {/* Add new - partners only */}
-              {partner && (
+              {(
                 <div>
                   <div style={{ ...sty.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link a Phone Number</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -14038,12 +14026,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
                 </div>
               )}
 
-              {!partner && (
-                <div style={{ ...sty.surf2, border: \`1px solid \${C.border}\`, borderRadius: 10, padding: 14, display: "flex", gap: 8, alignItems: "center" }}>
-                  <Lock size={14} color={C.muted} />
-                  <span style={{ ...sty.muted, fontSize: 12 }}>Only Partners can link or disconnect phone numbers.</span>
-                </div>
-              )}
+
 
               {/* What buyers see */}
               {connectedPhones.length > 0 && (
@@ -14090,7 +14073,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
 
           {settingsTab === "security" && isPartner(currentUser) && (() => {
             // Sync reset requests from Supabase
-            if (!window._resetsSynced) { window._resetsSynced = true; sbFetch("/password_resets?status=eq.pending&select=*").then(function(rows) { if (rows && rows.length) { var local = getResetRequests(); rows.forEach(function(r) { if (!local.find(function(l) { return l.id === r.reset_id; })) local.push({ id: r.reset_id, email: r.email, name: r.name, status: r.status, requestedAt: r.requested_at }); }); saveResetRequests(local); forceRender(function(n) { return n + 1; }); } }).catch(function() {}); }
+            if (!window._resetsSyncing) { window._resetsSyncing = true; sbFetch("/password_resets?status=eq.pending&select=*").then(function(rows) { window._resetsSyncing = false; if (rows && rows.length) { var local = getResetRequests(); var changed = false; rows.forEach(function(r) { if (!local.find(function(l) { return l.id === r.reset_id; })) { local.push({ id: r.reset_id, email: r.email, name: r.name, status: r.status, requestedAt: r.requested_at }); changed = true; } }); if (changed) { saveResetRequests(local); forceRender(function(n) { return n + 1; }); } } }).catch(function() { window._resetsSyncing = false; }); }
             var resets = getResetRequests().filter(function(r) { return r.status === "pending"; });
             var handleApproveReset = function(req) {
               // Reset the user's password via Supabase Admin
@@ -16727,7 +16710,7 @@ function AuthScreen({ onLogin }) {
     requests.push(newReq);
     saveResetRequests(requests);
     // Also sync to Supabase
-    sbFetch("/password_resets", { method: "POST", body: JSON.stringify({ reset_id: newReq.id, email: reqEmail, name: name, status: "pending", requested_at: newReq.requestedAt }) }).catch(function() {});
+    sbFetch("/password_resets", { method: "POST", body: JSON.stringify({ reset_id: newReq.id, email: reqEmail, name: name, status: "pending", requested_at: newReq.requestedAt }) }).then(function(result) { if (!result) console.warn("Reset request may not have synced to server"); }).catch(function(e) { console.warn("Reset sync failed:", e); });
     setPhase("forgot-submitted");
   };
 
@@ -17152,6 +17135,29 @@ function BridgewaterCRMApp() {
   }, []);
 
   // ── Load data from Supabase (with local fallback) ──────────────────────────
+  // Periodic sync for password reset requests (partner notification)
+  React.useEffect(function() {
+    if (!currentUser || !isPartner(currentUser)) return;
+    var checkResets = function() {
+      sbFetch("/password_resets?status=eq.pending&select=*").then(function(rows) {
+        if (rows && rows.length) {
+          var local = getResetRequests();
+          var changed = false;
+          rows.forEach(function(r) {
+            if (!local.find(function(l) { return l.id === r.reset_id; })) {
+              local.push({ id: r.reset_id, email: r.email, name: r.name, status: r.status, requestedAt: r.requested_at });
+              changed = true;
+            }
+          });
+          if (changed) { saveResetRequests(local); forceRender(function(n) { return n + 1; }); }
+        }
+      }).catch(function() {});
+    };
+    checkResets();
+    var interval = setInterval(checkResets, 60000);
+    return function() { clearInterval(interval); };
+  }, [currentUser]);
+
   const [dataLoaded, setDataLoaded] = React.useState(false);
   useEffect(() => {
     const load = async () => {
