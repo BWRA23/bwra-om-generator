@@ -14068,7 +14068,29 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
 
           {/* ── USER MANAGEMENT TAB ── */}
           {settingsTab === "usermgmt" && partner && (
-            <UserManagementPanel currentUser={currentUser} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ ...sty.text, fontSize: 15, fontWeight: 700 }}>User Access Management</div>
+              <div style={{ ...sty.muted, fontSize: 12, lineHeight: 1.6 }}>Manage team accounts in the Supabase Auth dashboard. All users log in with their @bridgewater.realty email and must complete 2FA setup on first login.</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {TEAM.map(function(name) {
+                  var email = (name.toLowerCase() + "@bridgewater.realty").replace(/ .*/g, "");
+                  var role = isPartner(name) ? "Partner" : "Agent";
+                  return React.createElement("div", { key: name, style: { ...sty.surf2, border: "1px solid " + C.border, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" } },
+                    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12 } },
+                      React.createElement("div", { style: { width: 36, height: 36, borderRadius: 99, backgroundColor: isPartner(name) ? C.red + "20" : C.blue + "20", display: "flex", alignItems: "center", justifyContent: "center", color: isPartner(name) ? C.red : C.blue, fontWeight: 700, fontSize: 13 } }, name.charAt(0)),
+                      React.createElement("div", null,
+                        React.createElement("div", { style: { ...sty.text, fontWeight: 600, fontSize: 14 } }, name),
+                        React.createElement("div", { style: { ...sty.muted, fontSize: 11 } }, email)
+                      )
+                    ),
+                    React.createElement("span", { style: { fontSize: 10, fontWeight: 700, color: isPartner(name) ? C.red : C.blue, backgroundColor: (isPartner(name) ? C.red : C.blue) + "15", borderRadius: 5, padding: "3px 10px", textTransform: "uppercase", letterSpacing: "0.5px" } }, role)
+                  );
+                })}
+              </div>
+              <div style={{ ...sty.surf2, border: "1px dashed " + C.border, borderRadius: 10, padding: 16, textAlign: "center" }}>
+                <div style={{ ...sty.muted, fontSize: 12, lineHeight: 1.6 }}>To add or remove users, go to your <a href="https://supabase.com/dashboard/project/khctptruikafdcxqsvvy/auth/users" target="_blank" style={{ color: C.red, textDecoration: "none" }}>Supabase Auth Dashboard</a> and update the TEAM array in the CRM code.</div>
+              </div>
+            </div>
           )}
 
           {settingsTab === "security" && isPartner(currentUser) && (() => {
