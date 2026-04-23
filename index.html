@@ -5147,7 +5147,7 @@ function AddTaskInlineForm({ context, currentUser, buyers, listings, onSave, onC
   );
 }
 
-function TasksView({ tasks, setTasks, buyers, listings, openCompose, currentUser }) {
+function TasksView({ tasks, setTasks, buyers, listings, openCompose, currentUser, calEvents, setCalEvents }) {
   const [filter, setFilter] = useState("All");
   const [expandedId, setExpandedId] = useState(null);
   const [showAddTask, setShowAddTask] = React.useState(false);
@@ -5242,7 +5242,18 @@ function TasksView({ tasks, setTasks, buyers, listings, openCompose, currentUser
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={function() {
                 if (!newTask.title.trim()) return;
-                setTasks(function(prev) { return [Object.assign({}, newTask, { id: "task_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6), done: false, dateAdded: new Date().toISOString() })].concat(prev); });
+                var taskId = "task_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+                setTasks(function(prev) { return [Object.assign({}, newTask, { id: taskId, done: false, dateAdded: new Date().toISOString() })].concat(prev); });
+                // Auto-add to calendar
+                if (setCalEvents && newTask.dueDate) {
+                  var calId = "cal_" + taskId;
+                  var calTitle = newTask.title;
+                  var linked = newTask.listingId ? listings.find(function(l) { return l.id === newTask.listingId; }) : null;
+                  var linkedBuyer = newTask.buyerId ? buyers.find(function(b) { return b.id === newTask.buyerId; }) : null;
+                  if (linked) calTitle += " - " + linked.name;
+                  if (linkedBuyer) calTitle += " (" + linkedBuyer.name + ")";
+                  setCalEvents(function(prev) { return prev.concat([{ id: calId, title: calTitle, date: newTask.dueDate, time: "09:00", type: "task", assignedTo: newTask.assignedTo, listingId: newTask.listingId || null, buyerId: newTask.buyerId || null, notes: newTask.notes || "", source: "crm" }]); });
+                }
                 setNewTask({ title: "", dueDate: new Date(Date.now() + 86400000).toISOString().split("T")[0], type: "Follow Up", priority: "Medium", assignedTo: currentUser, listingId: null, buyerId: null, notes: "" });
                 setShowAddTask(false);
               }} style={{ padding: "8px 20px", borderRadius: 7, border: "none", backgroundColor: C.red, color: "white", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Add Task</button>
@@ -10443,9 +10454,9 @@ function ChatView({ convs, setConvs, msgs, setMsgs, currentUser, chatUnread, set
 
   const startCall = (mode) => {
     if (!activeConv) return;
-    const target = activeConv.type==="dm" ? activeConv.members.find(m=>m!==currentUser) : activeConv.members.filter(m=>m!==currentUser);
-    setCallState({ mode, target });
-    setMsgs(p => [...p, { id:"msg_"+uid(), convId:activeId, from:currentUser, text:\`started a \${mode} call\`, timestamp:new Date().toISOString(), type:\`\${mode}_call\` }]);
+    // Open Google Meet in new tab
+    window.open("https://meet.google.com/new", "_blank");
+    setMsgs(p => [...p, { id:"msg_"+uid(), convId:activeId, from:currentUser, text:\`started a \${mode} call via Google Meet\`, timestamp:new Date().toISOString(), type:\`\${mode}_call\` }]);
   };
 
   const createConv = (opts) => {
@@ -11473,7 +11484,7 @@ const FILE_CATEGORIES = [
   { id: "all",        label: "All Files",       icon: HardDrive },
   { id: "documents",  label: "Documents",        icon: FilePlus },
   { id: "listings",   label: "Listings",         icon: Building2 },
-  { id: "buyers",     label: "Buyers",            icon: Users },
+  { id: "buyers",     label: "Clients",           icon: Users },
   { id: "cobroke",    label: "Co-Broker Deals",   icon: Handshake },
   { id: "legal",      label: "Legal & Contracts", icon: FileText },
   { id: "financial",  label: "Financials",        icon: DollarSign },
@@ -14471,7 +14482,7 @@ function SettingsView({ currentUser, connectedAccounts, setConnectedAccounts, co
 function MobileBottomNav({ view, navigateTo, setSidebarOpen, ucCount, closedCount, pendingEmailCount, overdueCount, chatUnreadCount, pendingShowingCount }) {
   const primaryNav = [
     { id: "dashboard", label: "Home",     icon: LayoutDashboard },
-    { id: "buyers",    label: "Buyers",   icon: Users },
+    { id: "buyers",    label: "Clients",  icon: Users },
     { id: "listings",  label: "Listings", icon: Building2 },
     { id: "tc",        label: "Deals",    icon: Briefcase },
     { id: "inbox",     label: "Inbox",    icon: Inbox },
@@ -17351,7 +17362,7 @@ function BridgewaterCRMApp() {
 
   const ALL_NAV = [
     { id: "dashboard",   label: "Dashboard",    icon: LayoutDashboard },
-    { id: "buyers",      label: "Buyers",       icon: Users },
+    { id: "buyers",      label: "Clients",      icon: Users },
     { id: "listings",    label: "Listings",     icon: Building2 },
     { id: "tc",          label: "Transactions", icon: Briefcase },
     { id: "closed",      label: "Closed/Leased", icon: Trophy },
@@ -17538,7 +17549,7 @@ function BridgewaterCRMApp() {
             {view === "commission" && <CommissionTrackerView listings={listings} currentUser={currentUser} commissions={commissions} setCommissions={setCommissions} commissionRequests={commissionRequests} setCommissionRequests={setCommissionRequests} tasks={tasks} setTasks={setTasks} pushNotif={pushNotif} />}
             {view === "inbox"    && <EmailInboxView buyers={buyers} setBuyers={setBuyers} currentUser={currentUser} connectedAccounts={connectedAccounts} setConnectedAccounts={setConnectedAccounts} onGoToSettings={() => navigateTo("settings")} openCompose={openCompose} listings={listings} tasks={tasks} setTasks={setTasks} comms={comms} setComms={setComms} navigateTo={navigateTo} setSelectedBuyer={(b) => { setSelectedBuyer(b); navigateTo("buyer-detail"); }} setSelectedListing={(l) => { setSelectedListing(l); navigateTo("listing-detail"); }} showings={showings} setShowings={setShowings} calEvents={calEvents} setCalEvents={setCalEvents} />}
             {view === "settings" && <SettingsView currentUser={currentUser} connectedAccounts={connectedAccounts} setConnectedAccounts={setConnectedAccounts} connectedPhones={connectedPhones} setConnectedPhones={setConnectedPhones} customTemplates={customTemplates} setCustomTemplates={setCustomTemplates} customSmsTemplates={customSmsTemplates} setCustomSmsTemplates={setCustomSmsTemplates} showingTimeConnected={showingTimeConnected} setShowingTimeConnected={setShowingTimeConnected} hiddenNavItems={hiddenNavItems} setHiddenNavItems={setHiddenNavItems} allNav={ALL_NAV} />}
-            {view === "tasks" && <TasksView tasks={tasks} setTasks={setTasks} buyers={buyers} listings={listings} openCompose={openCompose} currentUser={currentUser} />}
+            {view === "tasks" && <TasksView tasks={tasks} setTasks={setTasks} buyers={buyers} listings={listings} openCompose={openCompose} currentUser={currentUser} calEvents={calEvents} setCalEvents={setCalEvents} />}
             {view === "pipeline" && <PipelineView buyers={buyers} listings={listings} comms={comms} showings={showings} tasks={tasks} currentUser={currentUser} setBuyers={setBuyers} setSelectedBuyer={(b) => { setSelectedBuyer(b); setView("buyer-detail"); }} setSelectedListing={(l) => { setSelectedListing(l); setView("listing-detail"); }} />}
             {view === "calendar" && <CalendarView events={calEvents} setEvents={setCalEvents} buyers={buyers.filter(b => canSeeBuyer(b, currentUser))} listings={listings.filter(l => canSeeListing(l, currentUser))} currentUser={currentUser} connectedAccounts={connectedAccounts} />}
             {view === "showings" && <ShowingsView showings={showings} setShowings={setShowings} listings={listings.filter(l => canSeeListing(l, currentUser))} currentUser={currentUser} showingTimeConnected={showingTimeConnected} onGoToSettings={() => navigateTo("settings")} tasks={tasks} setTasks={setTasks} openCompose={openCompose} />}
