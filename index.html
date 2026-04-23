@@ -302,9 +302,9 @@ const Moon            = _makeIcon("Moon","moon");
 // ─── Brand Palette ──────────────────────────────────────────────────────────
 var DARK_THEME = { bg:"#080808", surface:"#131313", surface2:"#1c1c1c", surface3:"#242424", border:"#2a2a2a", red:"#dc2626", redD:"#b91c1c", text:"#f0f0f0", muted:"#6b7280", sub:"#9ca3af", green:"#22c55e", amber:"#f59e0b", blue:"#3b82f6" };
 var LIGHT_THEME = { bg:"#f3f4f6", surface:"#ffffff", surface2:"#f9fafb", surface3:"#e5e7eb", border:"#d1d5db", red:"#dc2626", redD:"#b91c1c", text:"#111827", muted:"#6b7280", sub:"#4b5563", green:"#16a34a", amber:"#d97706", blue:"#2563eb" };
-var C = { bg:"#080808", surface:"#131313", surface2:"#1c1c1c", surface3:"#242424", border:"#2a2a2a", red:"#dc2626", redD:"#b91c1c", text:"#f0f0f0", muted:"#6b7280", sub:"#9ca3af", green:"#22c55e", amber:"#f59e0b", blue:"#3b82f6" };
+var C = { bg:"#f3f4f6", surface:"#ffffff", surface2:"#f9fafb", surface3:"#e5e7eb", border:"#d1d5db", red:"#dc2626", redD:"#b91c1c", text:"#111827", muted:"#6b7280", sub:"#4b5563", green:"#16a34a", amber:"#d97706", blue:"#2563eb" };
 function applyTheme(t) { var s = t === "light" ? LIGHT_THEME : DARK_THEME; Object.keys(s).forEach(function(k) { C[k] = s[k]; }); if (typeof refreshSty === "function") refreshSty(); document.body.style.backgroundColor = C.bg; document.body.style.color = C.text; var el = document.getElementById("theme-scrollbar"); if (el) el.textContent = "::-webkit-scrollbar-thumb{background:" + (t === "light" ? "#bbb" : C.border) + "}select option{background:" + C.surface + ";color:" + C.text + "}"; }
-try { var _savedTheme = localStorage.getItem("bw_theme") || "dark"; applyTheme(_savedTheme); } catch(e) {}
+try { var _savedTheme = localStorage.getItem("bw_theme") || "light"; applyTheme(_savedTheme); } catch(e) {}
 var sty = {};
 function refreshSty() { sty.bg={backgroundColor:C.bg}; sty.surf={backgroundColor:C.surface}; sty.surf2={backgroundColor:C.surface2}; sty.surf3={backgroundColor:C.surface3}; sty.border={borderColor:C.border}; sty.red={color:C.red}; sty.redBg={backgroundColor:C.red}; sty.text={color:C.text}; sty.muted={color:C.muted}; sty.sub={color:C.sub}; sty.green={color:C.green}; sty.greenBg={backgroundColor:"rgba(34,197,94,.12)"}; sty.amber={color:C.amber}; sty.amberBg={backgroundColor:"rgba(245,158,11,.12)"}; sty.redBgS={backgroundColor:"rgba(220,38,38,.12)"}; sty.blue={color:C.blue}; sty.blueBg={backgroundColor:"rgba(59,130,246,.12)"}; }
 refreshSty();
@@ -403,6 +403,7 @@ function downloadNDADoc(signerName, signerEmail, company, signature, propertyNam
 
 const fmt12h = (t) => { if (!t) return ""; var p = String(t).split(":"); var h = parseInt(p[0])||0; var m = p[1]||"00"; return (h%12||12) + ":" + m + " " + (h>=12?"PM":"AM"); };
 const fmtD = (d) => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtDT = (d) => { try { var dt = new Date(d); return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " at " + dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); } catch(e) { return fmtD(d); } };
 const today = new Date().toISOString().split("T")[0];
 const isOverdue = (d) => d < today;
 const uid = () => Math.random().toString(36).slice(2, 8);
@@ -2132,6 +2133,8 @@ function BuyersList({ buyers, setBuyers, subcategories, setSubcategories, setSel
 
 function BuyerDetail({ buyer, listings, comms, setBuyers, allBuyers, setComms, goBack, setShowAddTask, openCompose, connectedPhones, openSms, currentUser }) {
   const [tab, setTab] = useState("overview");
+  const [editingCommId, setEditingCommId] = React.useState(null);
+  const [editCommText, setEditCommText] = React.useState("");
   const [note, setNote] = useState("");
   const [noteListingId, setNoteListingId] = useState("");
   const [editMode, setEditMode] = useState(false);
@@ -2161,7 +2164,7 @@ function BuyerDetail({ buyer, listings, comms, setBuyers, allBuyers, setComms, g
 
   const addComm = (type, direction) => {
     if (!note.trim()) return;
-    const newC = { id: uid(), buyerId: buyer.id, type, direction, date: today, note };
+    const newC = { id: uid(), buyerId: buyer.id, type, direction, date: new Date().toISOString(), note, loggedBy: currentUser };
     setComms(prev => [...prev, newC]);
     setBuyers(prev => prev.map(b => b.id === buyer.id ? { ...b, lastContact: today } : b));
     setNote("");
@@ -2398,29 +2401,51 @@ function BuyerDetail({ buyer, listings, comms, setBuyers, allBuyers, setComms, g
                 <option value="">No listing linked</option>
                 {listings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              <Btn onClick={() => { if (!note.trim()) return; var newC = { id: uid(), buyerId: buyer.id, listingId: noteListingId || "", type: "Note", direction: "", date: today, note: note.trim(), loggedBy: currentUser }; setComms(prev => [...prev, newC]); setBuyers(prev => prev.map(b => b.id === buyer.id ? { ...b, lastContact: today } : b)); setNote(""); setNoteListingId(""); }} variant="dark" size="sm">Log Note</Btn>
+              <Btn onClick={() => { if (!note.trim()) return; var newC = { id: uid(), buyerId: buyer.id, listingId: noteListingId || "", type: "Note", direction: "", date: new Date().toISOString(), note: note.trim(), loggedBy: currentUser }; setComms(prev => [...prev, newC]); setBuyers(prev => prev.map(b => b.id === buyer.id ? { ...b, lastContact: today } : b)); setNote(""); setNoteListingId(""); }} variant="dark" size="sm">Log Note</Btn>
             </div>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {buyerComms.length === 0 && <div style={{ ...sty.muted, textAlign: "center", padding: 20, fontSize: 13 }}>No activity logged yet</div>}
-            {buyerComms.map(c => (
+            {buyerComms.map(c => {
+              var isEditing = editingCommId === c.id;
+              return (
               <Card key={c.id}>
                 <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                   <div style={{ width: 32, height: 32, borderRadius: 99, backgroundColor: C.surface3, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                    {c.type === "Call" ? <Phone size={13} color={C.green} /> : c.type === "Email" ? <Mail size={13} color={C.blue} /> : <MessageSquare size={13} color={C.amber} />}
+                    {c.type === "Call" ? <Phone size={13} color={C.green} /> : c.type === "Email" ? <Mail size={13} color={C.blue} /> : c.type === "Task" ? <CheckSquare size={13} color={C.red} /> : <MessageSquare size={13} color={C.amber} />}
                   </div>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ ...sty.text, fontSize: 13, fontWeight: 600 }}>{c.type}</span>
-                      <Badge label={c.direction} color={c.direction === "Inbound" ? "blue" : "muted"} />
-                      <span style={{ ...sty.muted, fontSize: 12 }}>{fmtD(c.date)}</span>
+                      {c.direction && <Badge label={c.direction} color={c.direction === "Inbound" ? "blue" : "muted"} />}
+                      <span style={{ ...sty.muted, fontSize: 11 }}>{fmtDT(c.date)}</span>
+                      {c.loggedBy && <span style={{ ...sty.muted, fontSize: 10 }}>by {c.loggedBy}</span>}
                     </div>
-                    <p style={{ ...sty.sub, fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>{c.note}</p>
+                    {isEditing ? (
+                      <div style={{ marginTop: 6 }}>
+                        <textarea value={editCommText} onChange={e => setEditCommText(e.target.value)} style={{ width: "100%", backgroundColor: C.surface2, border: "1px solid " + C.border, borderRadius: 6, padding: 8, color: C.text, fontSize: 13, resize: "vertical", outline: "none", boxSizing: "border-box", minHeight: 60 }} />
+                        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                          <button onClick={() => { setComms(prev => prev.map(x => x.id === c.id ? Object.assign({}, x, { note: editCommText, editedAt: new Date().toISOString() }) : x)); setEditingCommId(null); }} style={{ padding: "4px 12px", borderRadius: 5, border: "none", backgroundColor: C.red, color: "white", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                          <button onClick={() => setEditingCommId(null)} style={{ padding: "4px 12px", borderRadius: 5, border: "1px solid " + C.border, backgroundColor: "transparent", color: C.muted, fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <p style={{ ...sty.sub, fontSize: 13, marginTop: 4, lineHeight: 1.5 }}>{c.note}</p>
+                        {c.editedAt && <span style={{ ...sty.muted, fontSize: 10 }}>(edited {fmtDT(c.editedAt)})</span>}
+                      </div>
+                    )}
                     {c.listingId && (() => { var ll = listings.find(function(l) { return l.id === c.listingId; }); return ll ? <div style={{ fontSize: 11, color: "#3b82f6", marginTop: 3 }}>Linked: {ll.name}</div> : null; })()}
                   </div>
+                  {!isEditing && (
+                    <button onClick={() => { setEditingCommId(c.id); setEditCommText(c.note || ""); }} style={{ background: "none", border: "none", cursor: "pointer", color: C.muted, padding: 4, flexShrink: 0 }}>
+                      <Pencil size={12} />
+                    </button>
+                  )}
                 </div>
               </Card>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -4543,12 +4568,18 @@ function ListingDetail({ listing, buyers, comms, goBack, setBuyers, setListings,
 
   const STATUS_FLOW = ["Active", "Under Contract", "Closed"];
   const partner = isPartner(currentUser);
+  const canEdit = partner || (listing.assignedTo || []).includes(currentUser);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <button onClick={goBack} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: C.muted, fontSize: 14, alignSelf: "flex-start" }}>
         <ArrowLeft size={16} /> Back
       </button>
+      {!canEdit && (
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 12px", borderRadius: 6, backgroundColor: C.blue + "15", border: "1px solid " + C.blue + "30", color: C.blue, fontSize: 11, fontWeight: 600, alignSelf: "flex-start" }}>
+          <Eye size={12} /> View Only
+        </div>
+      )}
 
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
@@ -4590,7 +4621,7 @@ function ListingDetail({ listing, buyers, comms, goBack, setBuyers, setListings,
                   <RefreshCw size={11} /> Sync {listing.source}
                 </button>
               )}
-              {(
+              {canEdit && (
                 <button onClick={() => setShowEdit(true)}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", borderRadius: 7, border: \`1px solid \${C.border}\`, backgroundColor: C.surface2, color: C.text, fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                   <Edit size={11} /> Edit Listing
@@ -4619,7 +4650,7 @@ function ListingDetail({ listing, buyers, comms, goBack, setBuyers, setListings,
                 </button>
               )}
             </div>
-            {(
+            {canEdit && (
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {(function() {
                   var isLease = listing.listingMode === "lease";
@@ -5975,7 +6006,7 @@ function TransactionCoordinatorView({ listings, setListings, buyers, currentUser
                 )}
 
                 {/* Status actions */}
-                {(
+                {(isPartner(currentUser) || (l.assignedTo || []).includes(currentUser)) && (
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                     <button onClick={() => changeStatus(l.id, "Active")}
                       style={{ flex: 1, padding: "9px", borderRadius: 8, border: \`1px solid \${C.border}\`, backgroundColor: "transparent", color: C.muted, fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -17030,7 +17061,7 @@ function BridgewaterCRMApp() {
   var _urlParams = new URLSearchParams(window.location.search);
   var _dealRoomId = _urlParams.get("dealroom");
   if (_dealRoomId) return React.createElement(DealRoomPublic, { listingId: resolveDealRoomToken(_dealRoomId) });
-  const [theme, setTheme] = useState(function() { try { return localStorage.getItem("bw_theme") || "dark"; } catch(e) { return "dark"; } });
+  const [theme, setTheme] = useState(function() { try { return localStorage.getItem("bw_theme") || "light"; } catch(e) { return "light"; } });
   var _fr = useState(0); var forceRender = _fr[1];
   useEffect(function() { applyTheme(theme); try { localStorage.setItem("bw_theme", theme); } catch(e) {} forceRender(function(n) { return n + 1; }); }, [theme]);
   const [view, setView]         = useState("dashboard");
@@ -17663,7 +17694,15 @@ function BridgewaterCRMApp() {
                 currentUser={currentUser}
                 buyers={buyers}
                 listings={listings}
-                onSave={(task) => { setTasks(prev => [task, ...prev]); setShowAddTask(null); }}
+                onSave={(task) => {
+                  setTasks(prev => [task, ...prev]);
+                  // Auto-log to activity if task has a buyerId
+                  if (task.buyerId) {
+                    var taskComm = { id: "comm_" + Date.now(), buyerId: task.buyerId, listingId: task.listingId || "", type: "Task", direction: task.type || "Follow Up", date: new Date().toISOString(), note: task.title + (task.note ? " - " + task.note : "") + " (Due: " + task.dueDate + ")", loggedBy: currentUser };
+                    setComms(prev => [...prev, taskComm]);
+                  }
+                  setShowAddTask(null);
+                }}
                 onClose={() => setShowAddTask(null)}
               />
             </div>
