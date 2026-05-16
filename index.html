@@ -444,7 +444,7 @@ function App(){
   async function loadListing(id){
     console.log("loadListing called with id:", id);
     try{
-      const listing=await sbFetch("/rest/v1/listings?id=eq."+id+"&select=*");
+      const listing=await sbFetch("/rest/v1/listings?"+(id.startsWith("listing_")?"legacy_id":"id")+"=eq."+id+"&select=*");
       console.log("loadListing result:", listing ? listing.length + " records" : "null");
       if(listing&&listing[0]){
         const l=listing[0];
