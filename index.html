@@ -444,10 +444,14 @@ function App(){
   async function loadListing(id){
     console.log("loadListing called with id:", id);
     try{
-      const listing=await sbFetch("/rest/v1/listings?"+(id.startsWith("listing_")?"legacy_id":"id")+"=eq."+id+"&select=*");
+      // CRM deep-links pass the listing's legacy_id (e.g. "listing_597xbr"); the CRM-import dropdown passes the Supabase UUID. Query whichever matches.
+      const isUuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id||""));
+      const lookupField=isUuid?"id":"legacy_id";
+      const listing=await sbFetch("/rest/v1/listings?"+lookupField+"=eq."+encodeURIComponent(id)+"&select=*");
       console.log("loadListing result:", listing ? listing.length + " records" : "null");
       if(listing&&listing[0]){
         const l=listing[0];
+        if(l.id)setSelectedListingId(l.id);
         setPropertyName(l.name||"");
         setAddress(l.address||"");
         setAddresses(l.address?[l.address]:[""]);
