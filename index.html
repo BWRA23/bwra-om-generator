@@ -320,6 +320,21 @@ const BW_AGENTS=[
 // ════════════════════════════════════════════════════════
 function fileToDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)})}
 
+// Fetch a remote image URL and return a data URL (PptxGenJS embeds base64 reliably).
+async function urlToDataURL(url){
+  try{if(!url)return null;if(/^data:/.test(url))return url;const r=await fetch(url);const b=await r.blob();return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});}catch(e){return null;}
+}
+// Upload a data URL to the om-photos bucket; returns the public URL (or passes through an existing URL).
+async function uploadPhoto(dataUrl,path){
+  if(!dataUrl)return null;
+  if(/^https?:/.test(dataUrl))return dataUrl;
+  const token=localStorage.getItem("sb_token");
+  const blob=await (await fetch(dataUrl)).blob();
+  const r=await fetch(SB_URL+"/storage/v1/object/om-photos/"+path,{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token,"Content-Type":blob.type||"image/jpeg","x-upsert":"true"},body:blob});
+  if(!r.ok)throw new Error("Photo upload failed ("+r.status+")");
+  return SB_URL+"/storage/v1/object/public/om-photos/"+path;
+}
+
 // ════════════════════════════════════════════════════════
 // PHOTO UPLOAD COMPONENT
 // ════════════════════════════════════════════════════════
@@ -408,6 +423,7 @@ function App(){
   const[step,setStep]=useState(1);
   const[toast,setToast]=useState("");
   const[generating,setGenerating]=useState(false);
+  const[saving,setSaving]=useState(false);
   const[aiLoading,setAiLoading]=useState(false);
   const[crmListings,setCrmListings]=useState([]);
   const[loadingListings,setLoadingListings]=useState(false);
@@ -514,7 +530,7 @@ function App(){
         setAddresses(l.address?[l.address]:[""]);
         setCityState(l.city||"");
         setCityStateZip(l.city||"");
-        setUnitDescription((l.units?l.units+"-Unit ":"")+(l.type||"Multifamily")+" Property");
+        setUnitDescription((l.units?l.units+"-Unit ":"")+(l.asset_type||l.type||"Multifamily")+(l.asset_type?"":" Property"));
         setPropertyLabel(l.name||"");
         // Auto-populate summary metrics — use functional update to avoid stale closure
         setSummaryPairs(prev=>{
@@ -522,7 +538,11 @@ function App(){
           if(l.asking_price){np[0]={...np[0],left:{label:"PORTFOLIO PRICE",value:"$"+Number(l.asking_price).toLocaleString()}}}
           if(l.units){np[0]={...np[0],right:{label:"UNIT COUNT",value:String(l.units)}}}
           if(l.price_per_unit){np[1]={...np[1],left:{label:"PRICE PER UNIT",value:"$"+Number(l.price_per_unit).toLocaleString()}}}
-          if(l.cap_rate){np[3]={...np[3],left:{label:"PRO FORMA CAP RATE",value:l.cap_rate+"%"}}}
+          if(l.gba_sf){np[1]={...np[1],right:{label:"GBA",value:Number(l.gba_sf).toLocaleString()+" sf"}}}
+          if(l.price_per_sf){np[2]={...np[2],left:{label:"PRICE PER SF",value:"$"+l.price_per_sf+"/sf"}}}
+          if(l.flood_zone){np[2]={...np[2],right:{label:"FLOOD ZONE",value:String(l.flood_zone)}}}
+          const capVal=(l.proforma_cap_rate!=null&&l.proforma_cap_rate!=="")?l.proforma_cap_rate:l.cap_rate;
+          if(capVal!=null&&capVal!==""){np[3]={...np[3],left:{label:"PRO FORMA CAP RATE",value:capVal+"%"}}}
           if(l.occupancy){np[3]={...np[3],right:{label:"OCCUPANCY",value:l.occupancy+"%"}}}
           return np;
         });
@@ -531,7 +551,33 @@ function App(){
           const agentIds=l.assigned_to.map(name=>{const found=BW_AGENTS.find(a=>a.name.toLowerCase().includes(name.toLowerCase())||a.id===name.toLowerCase());return found?found.id:null}).filter(Boolean);
           if(agentIds.length)setSelectedAgents(agentIds);
         }
-        showToast("Listing data imported from CRM");
+        // If a full OM payload was saved to the CRM, hydrate the whole form from it.
+        if(l.om_data&&typeof l.om_data==="object"){
+          const om=l.om_data;
+          if(Array.isArray(om.addresses)&&om.addresses.length)setAddresses(om.addresses);
+          if(om.includeAerial!=null)setIncludeAerial(!!om.includeAerial);
+          if(om.includeFloodMap!=null)setIncludeFloodMap(!!om.includeFloodMap);
+          if(typeof om.offeringText==="string")setOfferingText(om.offeringText);
+          if(Array.isArray(om.summaryPairs))setSummaryPairs(om.summaryPairs);
+          if(Array.isArray(om.summarySplit))setSummarySplit(om.summarySplit);
+          if(typeof om.summaryNote==="string")setSummaryNote(om.summaryNote);
+          if(Array.isArray(om.rentRoll))setRentRoll(om.rentRoll);
+          if(typeof om.rentRollFootnote==="string")setRentRollFootnote(om.rentRollFootnote);
+          if(om.operatingStatement){const o=om.operatingStatement;if(Array.isArray(o.income))setOpIncome(o.income);if(Array.isArray(o.expenses))setOpExpenses(o.expenses);if(o.totalExpenses)setOpTotalExp(o.totalExpenses);if(o.expenseRatio)setOpExpRatio(o.expenseRatio);if(o.noi)setOpNoi(o.noi);if(typeof o.footnotes==="string")setOpFootnotes(o.footnotes);}
+          if(om.cashFlow){if(Array.isArray(om.cashFlow.items))setCfItems(om.cashFlow.items);if(Array.isArray(om.cashFlow.financingTerms))setCfTerms(om.cashFlow.financingTerms);}
+          if(om.photos){const ph=om.photos;(async()=>{
+            if(ph.cover)setCoverPhoto(await urlToDataURL(ph.cover));
+            if(ph.team)setTeamPhoto(await urlToDataURL(ph.team));
+            if(ph.aerial)setAerialPhoto(await urlToDataURL(ph.aerial));
+            if(ph.floodMap)setFloodMapPhoto(await urlToDataURL(ph.floodMap));
+            if(ph.map)setMapPhoto(await urlToDataURL(ph.map));
+            if(ph.financialDivider)setFinancialDividerPhoto(await urlToDataURL(ph.financialDivider));
+            if(Array.isArray(ph.sections)){const secs=await Promise.all(ph.sections.map(async s=>({label:s.label||"",photos:await Promise.all(((s.photos&&s.photos.length)?s.photos:[null,null,null,null]).map(u=>u?urlToDataURL(u):null))})));setPhotoSections(secs);}
+          })();}
+          showToast("Full OM loaded from CRM");
+        } else {
+          showToast("Listing data imported from CRM");
+        }
       }
     }catch(e){console.error("loadListing error:",e.message)}
   }
@@ -609,6 +655,32 @@ function App(){
       showToast("OM downloaded successfully!");
     }catch(e){console.error(e);showToast("Error generating OM")}
     setGenerating(false);
+  }
+
+  async function saveToCRM(){
+    if(!selectedListingId){showToast("Import a CRM listing first, then Save");return;}
+    setSaving(true);
+    try{
+      const stamp=Date.now();
+      const up=(d,name)=>d?uploadPhoto(d,selectedListingId+"/"+name+"-"+stamp+".jpg"):Promise.resolve(null);
+      const photos={
+        cover:await up(coverPhoto,"cover"),team:await up(teamPhoto,"team"),
+        aerial:await up(aerialPhoto,"aerial"),floodMap:await up(floodMapPhoto,"flood"),
+        map:await up(mapPhoto,"map"),financialDivider:await up(financialDividerPhoto,"findiv"),
+        sections:await Promise.all(photoSections.map(async(s,si)=>({label:s.label,photos:await Promise.all(s.photos.map((p,pi)=>p?uploadPhoto(p,selectedListingId+"/sec"+si+"-"+pi+"-"+stamp+".jpg"):Promise.resolve(null)))}))),
+      };
+      const om_data={
+        addresses,includeAerial,includeFloodMap,
+        offeringText,summaryPairs,summarySplit,summaryNote,
+        rentRoll,rentRollFootnote,
+        operatingStatement:{income:opIncome,expenses:opExpenses,totalExpenses:opTotalExp,expenseRatio:opExpRatio,noi:opNoi,footnotes:opFootnotes},
+        cashFlow:{items:cfItems,financingTerms:cfTerms},
+        photos,
+      };
+      await sbFetch("/rest/v1/listings?id=eq."+encodeURIComponent(selectedListingId),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({om_data})});
+      showToast("Saved to CRM - next import reloads this whole OM");
+    }catch(e){console.error(e);showToast("Save failed: "+(e.message||"error"))}
+    setSaving(false);
   }
 
   function handleLogout(){localStorage.removeItem("sb_token");localStorage.removeItem("sb_refresh");localStorage.removeItem("sb_user");setUser(null)}
@@ -855,6 +927,10 @@ function App(){
             {generating?<><span className="spinner" style={{marginRight:8}}/>Generating PPTX...</>:"⬇ Download OM (.pptx)"}
           </button>
           <p style={{color:"var(--sub)",fontSize:11,marginTop:12}}>The PPTX is fully editable in PowerPoint, Google Slides, or Keynote</p>
+          <div style={{marginTop:18,borderTop:"1px solid var(--border)",paddingTop:16}}>
+            <button className="btn-dark" onClick={saveToCRM} disabled={saving||!selectedListingId} style={{fontSize:13}}>{saving?<><span className="spinner" style={{marginRight:6}}/>Saving to CRM…</>:"Save this OM to CRM"}</button>
+            <p style={{color:"var(--sub)",fontSize:11,marginTop:8}}>{selectedListingId?"Stores all text, financials & photos on the listing so re-importing rebuilds the whole OM instantly.":"Import a CRM listing first to enable saving."}</p>
+          </div>
         </div>
         <div style={{marginTop:20}}><button className="btn-dark" onClick={()=>setStep(6)}>← Back to Financials</button></div>
       </div>}
