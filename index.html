@@ -334,6 +334,14 @@ async function uploadPhoto(dataUrl,path){
   if(!r.ok)throw new Error("Photo upload failed ("+r.status+")");
   return SB_URL+"/storage/v1/object/public/om-photos/"+path;
 }
+// Download a private CRM file (crm-files bucket) and return a data URL for the generator.
+async function crmFileToDataURL(storage_path){
+  const token=localStorage.getItem("sb_token");
+  const r=await fetch(SB_URL+"/storage/v1/object/crm-files/"+storage_path,{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token}});
+  if(!r.ok)throw new Error("CRM photo download failed ("+r.status+")");
+  const b=await r.blob();
+  return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
+}
 
 // ════════════════════════════════════════════════════════
 // PHOTO UPLOAD COMPONENT
@@ -424,6 +432,9 @@ function App(){
   const[toast,setToast]=useState("");
   const[generating,setGenerating]=useState(false);
   const[saving,setSaving]=useState(false);
+  const[crmPhotos,setCrmPhotos]=useState([]);
+  const[loadingCrmPhotos,setLoadingCrmPhotos]=useState(false);
+  const[importedLegacyId,setImportedLegacyId]=useState("");
   const[aiLoading,setAiLoading]=useState(false);
   const[crmListings,setCrmListings]=useState([]);
   const[loadingListings,setLoadingListings]=useState(false);
@@ -525,6 +536,7 @@ function App(){
       if(listing&&listing[0]){
         const l=listing[0];
         if(l.id)setSelectedListingId(l.id);
+        if(l.legacy_id)setImportedLegacyId(l.legacy_id);
         setPropertyName(l.name||"");
         setAddress(l.address||"");
         setAddresses(l.address?[l.address]:[""]);
@@ -578,6 +590,11 @@ function App(){
         } else {
           showToast("Listing data imported from CRM");
         }
+        // Pull property photos linked to this listing from the CRM files store.
+        if(l.legacy_id){
+          const savedHasPhotos=!!(l.om_data&&l.om_data.photos);
+          fetchCrmPhotos(l.legacy_id).then(cp=>{if(cp&&cp.length&&!savedHasPhotos)autoAssignCrmStarter(cp);});
+        }
       }
     }catch(e){console.error("loadListing error:",e.message)}
   }
@@ -588,7 +605,7 @@ function App(){
   }
 
   function handleStartFresh(){
-    setSelectedListingId("");
+    setSelectedListingId("");setImportedLegacyId("");setCrmPhotos([]);
     setPropertyName("");setAddress("");setAddresses([""]);setCityState("");setCityStateZip("");setUnitDescription("");setPropertyLabel("");
     setSelectedAgents(["mason","bryce","cameron"]);
     setIncludeAerial(false);setIncludeFloodMap(false);
@@ -655,6 +672,52 @@ function App(){
       showToast("OM downloaded successfully!");
     }catch(e){console.error(e);showToast("Error generating OM")}
     setGenerating(false);
+  }
+
+  async function fetchCrmPhotos(legacyId){
+    if(!legacyId){setCrmPhotos([]);return [];}
+    setLoadingCrmPhotos(true);
+    let photos=[];
+    try{
+      const imgOr="or=(name.ilike.*.jpg,name.ilike.*.jpeg,name.ilike.*.png,name.ilike.*.webp,name.ilike.*.heic)";
+      const files=await sbFetch("/rest/v1/files?select=name,folder_path,storage_path&linked_listing=eq."+encodeURIComponent(legacyId)+"&"+imgOr+"&order=name.asc&limit=300");
+      if(Array.isArray(files)&&files.length){
+        let signed=[];
+        try{signed=await sbFetch("/storage/v1/object/sign/crm-files",{method:"POST",body:JSON.stringify({expiresIn:3600,paths:files.map(f=>f.storage_path)})});}catch(e){signed=[];}
+        photos=files.map((f,i)=>{const s=signed&&signed[i]&&(signed[i].signedURL||signed[i].signedUrl);return{name:f.name,folder:f.folder_path||"",storage_path:f.storage_path,thumb:s?(String(s).startsWith("http")?s:SB_URL+"/storage/v1"+s):null};});
+      }
+    }catch(e){console.error("fetchCrmPhotos",e);}
+    setCrmPhotos(photos);setLoadingCrmPhotos(false);
+    return photos;
+  }
+  async function assignCrmPhoto(photo,target){
+    try{
+      showToast("Loading photo…");
+      const d=await crmFileToDataURL(photo.storage_path);
+      if(target==="cover")setCoverPhoto(d);
+      else if(target==="team")setTeamPhoto(d);
+      else if(target==="aerial"){setAerialPhoto(d);setIncludeAerial(true);}
+      else if(target==="flood"){setFloodMapPhoto(d);setIncludeFloodMap(true);}
+      else if(target==="map")setMapPhoto(d);
+      else if(target==="divider")setFinancialDividerPhoto(d);
+      else if(target.indexOf("sec:")===0){const parts=target.split(":");const si=Number(parts[1]),pi=Number(parts[2]);setPhotoSections(prev=>{const n=prev.map(s=>({label:s.label,photos:[...s.photos]}));if(n[si])n[si].photos[pi]=d;return n;});}
+      showToast("Photo assigned");
+    }catch(e){console.error(e);showToast("Couldn't load that photo");}
+  }
+  async function autoAssignCrmStarter(cp){
+    try{
+      const aerials=cp.filter(p=>/aerial/i.test(p.name));
+      const others=cp.filter(p=>!/aerial/i.test(p.name));
+      const cover=(aerials[0]||cp[0]);
+      if(cover)assignCrmPhoto(cover,"cover");
+      const four=others.slice(0,4);
+      four.forEach((p,i)=>{crmFileToDataURL(p.storage_path).then(d=>{setPhotoSections(prev=>{const n=prev.map(s=>({label:s.label,photos:[...s.photos]}));if(n[0])n[0].photos[i]=d;return n;});}).catch(()=>{});});
+    }catch(e){console.error(e);}
+  }
+  function buildSlotOptions(){
+    const opts=[["cover","Cover"],["team","Team slide"],["aerial","Aerial slide"],["flood","Flood map"],["map","Map screenshot"],["divider","Financial divider"]];
+    photoSections.forEach((s,si)=>s.photos.forEach((_,pi)=>opts.push(["sec:"+si+":"+pi,(s.label||("Section "+(si+1)))+" #"+(pi+1)])));
+    return opts;
   }
 
   async function saveToCRM(){
@@ -756,6 +819,30 @@ function App(){
       {/* STEP 3: Photos */}
       {step===3&&<div>
         <h2>Photos & Images</h2>
+        {(importedLegacyId||crmPhotos.length>0)&&<div className="card" style={{marginBottom:20}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
+            <h3 style={{margin:0}}>CRM Photos{crmPhotos.length?" ("+crmPhotos.length+")":""}</h3>
+            {loadingCrmPhotos&&<span className="spinner"/>}
+            <div style={{flex:1}}/>
+            <button className="btn-dark btn-sm" onClick={()=>fetchCrmPhotos(importedLegacyId)} disabled={loadingCrmPhotos||!importedLegacyId}>Reload</button>
+          </div>
+          {crmPhotos.length===0&&!loadingCrmPhotos&&<p style={{fontSize:12,color:"var(--muted)"}}>No CRM photos found for this listing. Import a listing on Step 1, or upload manually below.</p>}
+          {crmPhotos.length>0&&<>
+            <p style={{fontSize:11,color:"var(--muted)",marginBottom:10}}>Pick a slot under any photo to drop it into the OM. Only the photos you choose are downloaded.</p>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10,maxHeight:360,overflowY:"auto"}}>
+              {crmPhotos.map((p,i)=><div key={i} style={{fontSize:10}}>
+                <div style={{height:80,background:"var(--surface2)",borderRadius:4,overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                  {p.thumb?<img src={p.thumb} loading="lazy" style={{width:"100%",height:"100%",objectFit:"cover"}}/>:<span style={{color:"var(--sub)"}}>no preview</span>}
+                </div>
+                <div style={{whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",marginTop:3}} title={p.name}>{p.name}</div>
+                <select defaultValue="" onChange={e=>{if(e.target.value){assignCrmPhoto(p,e.target.value);e.target.value="";}}} style={{fontSize:10,padding:"3px 4px",marginTop:2}}>
+                  <option value="">Assign to…</option>
+                  {buildSlotOptions().map(o=><option key={o[0]} value={o[0]}>{o[1]}</option>)}
+                </select>
+              </div>)}
+            </div>
+          </>}
+        </div>}
         <div className="grid2" style={{marginBottom:20}}>
           <div className="section"><h3>Cover Photo</h3><PhotoUpload value={coverPhoto} onChange={setCoverPhoto} label="Aerial/cover photo"/></div>
           <div className="section"><h3>Team Slide Photo</h3><PhotoUpload value={teamPhoto} onChange={setTeamPhoto} label="Exterior property photo"/></div>
