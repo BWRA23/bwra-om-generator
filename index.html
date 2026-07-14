@@ -82,10 +82,37 @@ const{useState,useEffect,useRef,useCallback}=React;
 const SB_URL="https://khctptruikafdcxqsvvy.supabase.co";
 const SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtoY3RwdHJ1aWthZmRjeHFzdnZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMwMjgzNjAsImV4cCI6MjA4ODYwNDM2MH0.McOv-IDQjDYArugi_QhYJoW9fCItMYF6h6AsDcG1h5g";
 
-async function sbFetch(path,opts={}){
+// Refresh the Supabase session using the stored refresh_token.
+// Returns the new access_token on success, or null (caller should force re-login).
+async function sbRefresh(){
+  const refresh_token=localStorage.getItem("sb_refresh");
+  if(!refresh_token)return null;
+  try{
+    const r=await fetch(SB_URL+"/auth/v1/token?grant_type=refresh_token",{method:"POST",headers:{"Content-Type":"application/json","apikey":SB_KEY},body:JSON.stringify({refresh_token})});
+    if(!r.ok)return null;
+    const d=await r.json();
+    if(d.access_token){
+      localStorage.setItem("sb_token",d.access_token);
+      if(d.refresh_token)localStorage.setItem("sb_refresh",d.refresh_token);
+      if(d.user)localStorage.setItem("sb_user",JSON.stringify(d.user));
+      return d.access_token;
+    }
+  }catch(e){/* fall through to null */}
+  return null;
+}
+
+async function sbFetch(path,opts={},_retried){
   const token=localStorage.getItem("sb_token");
   const headers={"Content-Type":"application/json","apikey":SB_KEY,...(token?{"Authorization":"Bearer "+token}:{}),...(opts.headers||{})};
   const r=await fetch(SB_URL+path,{...opts,headers});
+  // Access token expired → transparently refresh once and retry.
+  if(r.status===401&&!_retried){
+    const nt=await sbRefresh();
+    if(nt)return sbFetch(path,opts,true);
+    // Refresh failed: session is truly dead. Clear it so the app drops to the login screen.
+    localStorage.removeItem("sb_token");localStorage.removeItem("sb_refresh");localStorage.removeItem("sb_user");
+    window.dispatchEvent(new Event("sb-session-expired"));
+  }
   if(!r.ok)throw new Error(await r.text());
   const text=await r.text();
   return text?JSON.parse(text):null;
@@ -352,7 +379,7 @@ function SearchableListingInput({listings,value,onChange,loading}){
 // ════════════════════════════════════════════════════════
 function LoginScreen({onLogin}){
   const[email,setEmail]=useState("");const[pass,setPass]=useState("");const[err,setErr]=useState("");const[loading,setLoading]=useState(false);
-  const handleLogin=async()=>{setErr("");setLoading(true);try{const r=await sbAuth(email,pass);localStorage.setItem("sb_token",r.access_token);localStorage.setItem("sb_user",JSON.stringify(r.user));onLogin(r.user)}catch(e){setErr(e.message)}finally{setLoading(false)}};
+  const handleLogin=async()=>{setErr("");setLoading(true);try{const r=await sbAuth(email,pass);localStorage.setItem("sb_token",r.access_token);if(r.refresh_token)localStorage.setItem("sb_refresh",r.refresh_token);localStorage.setItem("sb_user",JSON.stringify(r.user));onLogin(r.user)}catch(e){setErr(e.message)}finally{setLoading(false)}};
   return <div className="login-wrap"><div className="login-box">
     <h1>BRIDGEWATER</h1><p style={{letterSpacing:3,fontSize:10,color:"var(--muted)"}}>REALTY ADVISORS</p>
     <p>OM Generator — Sign In</p>
@@ -417,8 +444,27 @@ function App(){
   const[cfItems,setCfItems]=useState([{label:"Purchase Price",current:"",proforma:""},{label:"Down Payment",current:"",proforma:""},{label:"Loan Amount",current:"",proforma:""},{label:"Monthly Payments",current:"",proforma:""},{label:"Annual Debt Service",current:"",proforma:""},{label:"NOI",current:"",proforma:""},{label:"Income After ADS",current:"",proforma:""},{label:"DSCR",current:"",proforma:""},{label:"Cash on Cash Return",current:"",proforma:""},{label:"Monthly Cash Flow",current:"",proforma:""}]);
   const[cfTerms,setCfTerms]=useState([{label:"Rate (%)",current:"",proforma:""},{label:"Amortization",current:"",proforma:""},{label:"LTV",current:"",proforma:""}]);
 
-  // Check auth on mount
-  useEffect(()=>{const t=localStorage.getItem("sb_token");const u=localStorage.getItem("sb_user");if(t&&u)setUser(JSON.parse(u))},[]);
+  // Check auth on mount — validate the stored token and silently refresh it if expired.
+  useEffect(()=>{
+    (async()=>{
+      const t=localStorage.getItem("sb_token");const u=localStorage.getItem("sb_user");
+      if(!t||!u)return;
+      let expired=true;
+      try{const payload=JSON.parse(atob(t.split(".")[1]));expired=(payload.exp*1000)<=Date.now();}catch(e){}
+      if(expired){
+        const nt=await sbRefresh();
+        if(!nt){localStorage.removeItem("sb_token");localStorage.removeItem("sb_refresh");localStorage.removeItem("sb_user");setUser(null);return;}
+      }
+      setUser(JSON.parse(localStorage.getItem("sb_user")));
+    })();
+  },[]);
+
+  // If a session dies mid-use (refresh failed on a 401), drop cleanly to the login screen.
+  useEffect(()=>{
+    const onExpired=()=>{setUser(null);showToast("Session expired — please sign in again");};
+    window.addEventListener("sb-session-expired",onExpired);
+    return()=>window.removeEventListener("sb-session-expired",onExpired);
+  },[]);
 
   // Fetch CRM listings on login + load URL param listing
   useEffect(()=>{
@@ -554,7 +600,7 @@ function App(){
     setGenerating(false);
   }
 
-  function handleLogout(){localStorage.removeItem("sb_token");localStorage.removeItem("sb_user");setUser(null)}
+  function handleLogout(){localStorage.removeItem("sb_token");localStorage.removeItem("sb_refresh");localStorage.removeItem("sb_user");setUser(null)}
 
   if(!user)return <LoginScreen onLogin={setUser}/>;
 
