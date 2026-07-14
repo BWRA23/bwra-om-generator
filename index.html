@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Bridgewater Realty Advisors — OM Generator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500;600;700&family=Poppins:ital,wght@0,400;0,600;0,700;1,400;1,600;1,700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -105,7 +105,7 @@ async function sbFetch(path,opts={},_retried){
   const token=localStorage.getItem("sb_token");
   const headers={"Content-Type":"application/json","apikey":SB_KEY,...(token?{"Authorization":"Bearer "+token}:{}),...(opts.headers||{})};
   const r=await fetch(SB_URL+path,{...opts,headers});
-  // Access token expired → transparently refresh once and retry.
+  // Access token expired -> transparently refresh once and retry.
   if(r.status===401&&!_retried){
     const nt=await sbRefresh();
     if(nt)return sbFetch(path,opts,true);
@@ -128,7 +128,10 @@ async function sbAuth(email,password){
 // PPTX GENERATOR (embedded — same logic as om_generator.js)
 // ════════════════════════════════════════════════════════
 const C={red:"DC2626",dark:"222222",darkBg:"2D2D2D",white:"FFFFFF",offWhite:"F5F5F5",lightGray:"EEEEEE",gray:"999999",black:"000000"};
-const FONT="Arial",FONT_BOLD="Arial",FONT_SERIF="Georgia",PW=10,PH=7.5;
+// Brand typeface - the Canva OM is set entirely in Poppins (italic for display titles,
+// bold for section banners, regular for body). PptxGenJS references fonts by name, so
+// the viewer/Canva needs Poppins available (a standard Google/Canva font) to render 1:1.
+const FONT="Poppins",FONT_BOLD="Poppins",FONT_SERIF="Poppins",PW=10,PH=7.5;
 function fmt$(n){if(!n&&n!==0)return"$0";return"$"+Number(n).toLocaleString("en-US")}
 function fmtNum(n){return n?Number(n).toLocaleString("en-US"):"0"}
 
@@ -140,7 +143,7 @@ function addCoverSlide(p,d){
   s.addText(d.cityState||"",{x:6.5,y:0.35,w:3.2,h:0.4,fontSize:18,fontFace:FONT_SERIF,italic:true,color:C.white,align:"right",margin:0});
   s.addText(d.propertyName||d.address||"",{x:0.5,y:2.5,w:9,h:1.5,fontSize:44,fontFace:FONT_SERIF,italic:true,color:C.white,align:"center",valign:"middle",margin:0});
   s.addText([{text:d.address||"",options:{fontSize:14,italic:true,color:C.white,breakLine:true}},{text:d.unitDescription||"",options:{fontSize:14,italic:true,color:C.white}}],{x:1,y:4.0,w:8,h:0.8,align:"center",margin:0});
-  s.addText("Offering Memorandum",{x:5.5,y:5.4,w:4.2,h:0.55,fontSize:22,fontFace:FONT_SERIF,italic:true,bold:true,color:C.white,align:"right",margin:0});
+  s.addText("Offering Memorandum",{x:5.5,y:5.4,w:4.2,h:0.55,fontSize:22,fontFace:FONT_SERIF,bold:true,color:C.white,align:"right",margin:0});
   s.addShape(p.shapes.LINE,{x:6.8,y:5.95,w:2.9,h:0,line:{color:C.white,width:2}});
   s.addText(["Bridgewater Realty Advisors","www.bridgewater.realty",d.officeAddress||"3501 Severn Avenue, Suite 19",d.officeCity||"Metairie, LA, 70002","504-901-0463","Licensed in LA, MS"].join("\n"),{x:5.5,y:6.05,w:4.2,h:1.2,fontSize:8.5,color:C.white,align:"right",margin:0,lineSpacingMultiple:1.3});
 }
@@ -173,7 +176,14 @@ function addOfferingSummarySlide(p,d){
   s.addText(d.offeringText||"",{x:0.3,y:0.85,w:4.2,h:6.3,fontSize:10,color:C.white,align:"justify",margin:0,lineSpacingMultiple:1.35});
   s.addShape(p.shapes.RECTANGLE,{x:4.8,y:0,w:5.2,h:PH,fill:{color:C.white}});
   s.addText("SUMMARY",{x:5.2,y:0.15,w:4.2,h:0.6,fontSize:30,fontFace:FONT_BOLD,bold:true,color:C.black,align:"center",margin:0});
-  if(d.summaryPairs){let y=0.95;d.summaryPairs.forEach((pr,i)=>{if(i===1)s.addShape(p.shapes.LINE,{x:5.2,y:y-0.02,w:4.3,h:0,line:{color:C.red,width:1}});if(pr.left)s.addText([{text:pr.left.label+": ",options:{fontSize:9,fontFace:FONT_BOLD,bold:true,color:C.black}},{text:pr.left.value,options:{fontSize:9,color:C.dark}}],{x:5.2,y,w:2.1,h:0.28,margin:0});if(pr.right)s.addText([{text:pr.right.label+": ",options:{fontSize:9,fontFace:FONT_BOLD,bold:true,color:C.black}},{text:pr.right.value,options:{fontSize:9,color:C.dark}}],{x:7.4,y,w:2.3,h:0.28,margin:0});y+=0.32});
+  let __sumStartY=0.95;
+  if(d.summarySplit&&d.summarySplit.some(sp=>sp&&sp.value)){
+    const parts=d.summarySplit.filter(sp=>sp&&(sp.value||sp.label));
+    const runs=[];parts.forEach((sp,i)=>{runs.push({text:(sp.label||"")+": ",options:{fontSize:10,fontFace:FONT_BOLD,bold:true,color:C.black}});runs.push({text:(sp.value||"")+(i<parts.length-1?"        ":""),options:{fontSize:10,color:C.dark,bold:true}})});
+    s.addText(runs,{x:5.2,y:0.72,w:4.3,h:0.3,align:"center",margin:0});
+    __sumStartY=1.2;
+  }
+  if(d.summaryPairs){let y=__sumStartY;d.summaryPairs.forEach((pr,i)=>{if(i===1)s.addShape(p.shapes.LINE,{x:5.2,y:y-0.02,w:4.3,h:0,line:{color:C.red,width:1}});if(pr.left)s.addText([{text:pr.left.label+": ",options:{fontSize:9,fontFace:FONT_BOLD,bold:true,color:C.black}},{text:pr.left.value,options:{fontSize:9,color:C.dark}}],{x:5.2,y,w:2.1,h:0.28,margin:0});if(pr.right)s.addText([{text:pr.right.label+": ",options:{fontSize:9,fontFace:FONT_BOLD,bold:true,color:C.black}},{text:pr.right.value,options:{fontSize:9,color:C.dark}}],{x:7.4,y,w:2.3,h:0.28,margin:0});y+=0.32});
     if(d.summaryNote)s.addText(d.summaryNote,{x:5.2,y:y+0.05,w:4.3,h:0.6,fontSize:8,bold:true,color:C.red,margin:0});
     const mapY=y+(d.summaryNote?0.7:0.2);
     if(d.mapPhoto){s.addImage({data:d.mapPhoto,x:5.2,y:mapY,w:4.3,h:PH-mapY-0.15,sizing:{type:"contain",w:4.3,h:PH-mapY-0.15}})}else{s.addShape(p.shapes.RECTANGLE,{x:5.2,y:mapY,w:4.3,h:PH-mapY-0.15,fill:{color:C.lightGray}});s.addText("[ Insert map screenshot ]",{x:5.2,y:mapY,w:4.3,h:PH-mapY-0.15,fontSize:11,color:C.gray,align:"center",valign:"middle",italic:true,margin:0})}
@@ -429,8 +439,9 @@ function App(){
   const[aiPrompt,setAiPrompt]=useState("");
 
   // Summary
-  const[summaryPairs,setSummaryPairs]=useState([{left:{label:"LIST PRICE",value:""},right:{label:"UNIT COUNT",value:""}},{left:{label:"PRICE PER UNIT",value:""},right:{label:"GBA",value:""}},{left:{label:"PRICE PER SF",value:""},right:{label:"LOT SIZE",value:""}},{left:{label:"IN PLACE CAP RATE",value:""},right:{label:"FLOOD ZONE",value:""}}]);
+  const[summaryPairs,setSummaryPairs]=useState([{left:{label:"PORTFOLIO PRICE",value:""},right:{label:"UNIT COUNT",value:""}},{left:{label:"PRICE PER UNIT",value:""},right:{label:"GBA",value:""}},{left:{label:"PRICE PER SF",value:""},right:{label:"FLOOD ZONE",value:""}},{left:{label:"PRO FORMA CAP RATE",value:""},right:{label:"OCCUPANCY",value:""}}]);
   const[summaryNote,setSummaryNote]=useState("");
+  const[summarySplit,setSummarySplit]=useState([{label:"",value:""},{label:"",value:""}]);
 
   // Financials
   const[rentRoll,setRentRoll]=useState([{unit:"1",type:"2 BED / 1 BATH",size:"",currentRent:"",marketRent:""}]);
@@ -444,7 +455,7 @@ function App(){
   const[cfItems,setCfItems]=useState([{label:"Purchase Price",current:"",proforma:""},{label:"Down Payment",current:"",proforma:""},{label:"Loan Amount",current:"",proforma:""},{label:"Monthly Payments",current:"",proforma:""},{label:"Annual Debt Service",current:"",proforma:""},{label:"NOI",current:"",proforma:""},{label:"Income After ADS",current:"",proforma:""},{label:"DSCR",current:"",proforma:""},{label:"Cash on Cash Return",current:"",proforma:""},{label:"Monthly Cash Flow",current:"",proforma:""}]);
   const[cfTerms,setCfTerms]=useState([{label:"Rate (%)",current:"",proforma:""},{label:"Amortization",current:"",proforma:""},{label:"LTV",current:"",proforma:""}]);
 
-  // Check auth on mount — validate the stored token and silently refresh it if expired.
+  // Check auth on mount - validate the stored token and silently refresh it if expired.
   useEffect(()=>{
     (async()=>{
       const t=localStorage.getItem("sb_token");const u=localStorage.getItem("sb_user");
@@ -461,7 +472,7 @@ function App(){
 
   // If a session dies mid-use (refresh failed on a 401), drop cleanly to the login screen.
   useEffect(()=>{
-    const onExpired=()=>{setUser(null);showToast("Session expired — please sign in again");};
+    const onExpired=()=>{setUser(null);showToast("Session expired - please sign in again");};
     window.addEventListener("sb-session-expired",onExpired);
     return()=>window.removeEventListener("sb-session-expired",onExpired);
   },[]);
@@ -508,11 +519,11 @@ function App(){
         // Auto-populate summary metrics — use functional update to avoid stale closure
         setSummaryPairs(prev=>{
           const np=[...prev];
-          if(l.asking_price){np[0]={...np[0],left:{label:"LIST PRICE",value:"$"+Number(l.asking_price).toLocaleString()}}}
+          if(l.asking_price){np[0]={...np[0],left:{label:"PORTFOLIO PRICE",value:"$"+Number(l.asking_price).toLocaleString()}}}
           if(l.units){np[0]={...np[0],right:{label:"UNIT COUNT",value:String(l.units)}}}
           if(l.price_per_unit){np[1]={...np[1],left:{label:"PRICE PER UNIT",value:"$"+Number(l.price_per_unit).toLocaleString()}}}
-          if(l.cap_rate){np[3]={...np[3],left:{label:"IN PLACE CAP RATE",value:l.cap_rate+"%"}}}
-          if(l.occupancy){np[3]={...np[3],right:{...np[3].right,label:"OCCUPANCY",value:l.occupancy+"%"}}}
+          if(l.cap_rate){np[3]={...np[3],left:{label:"PRO FORMA CAP RATE",value:l.cap_rate+"%"}}}
+          if(l.occupancy){np[3]={...np[3],right:{label:"OCCUPANCY",value:l.occupancy+"%"}}}
           return np;
         });
         // Auto-select assigned agents
@@ -538,8 +549,8 @@ function App(){
     setCoverPhoto(null);setTeamPhoto(null);setAerialPhoto(null);setFloodMapPhoto(null);setMapPhoto(null);setFinancialDividerPhoto(null);
     setPhotoSections([{label:"Exterior",photos:[null,null,null,null]},{label:"Interior",photos:[null,null,null,null]}]);
     setOfferingText("");setAiPrompt("");
-    setSummaryPairs([{left:{label:"LIST PRICE",value:""},right:{label:"UNIT COUNT",value:""}},{left:{label:"PRICE PER UNIT",value:""},right:{label:"GBA",value:""}},{left:{label:"PRICE PER SF",value:""},right:{label:"LOT SIZE",value:""}},{left:{label:"IN PLACE CAP RATE",value:""},right:{label:"FLOOD ZONE",value:""}}]);
-    setSummaryNote("");
+    setSummaryPairs([{left:{label:"PORTFOLIO PRICE",value:""},right:{label:"UNIT COUNT",value:""}},{left:{label:"PRICE PER UNIT",value:""},right:{label:"GBA",value:""}},{left:{label:"PRICE PER SF",value:""},right:{label:"FLOOD ZONE",value:""}},{left:{label:"PRO FORMA CAP RATE",value:""},right:{label:"OCCUPANCY",value:""}}]);
+    setSummaryNote("");setSummarySplit([{label:"",value:""},{label:"",value:""}]);
     setRentRoll([{unit:"1",type:"2 BED / 1 BATH",size:"",currentRent:"",marketRent:""}]);setRentRollFootnote("");
     setOpIncome([{label:"Gross Rental Income",current:"",proforma:"",notes:"",perUnit:"",perSF:""},{label:"Physical Vacancy",current:"",proforma:"",notes:"[1]",perUnit:"",perSF:""},{label:"Effective Rental Income",current:"",proforma:"",notes:"",perUnit:"",perSF:""},{label:"Effective Gross Income",current:"",proforma:"",notes:"",perUnit:"",perSF:""}]);
     setOpExpenses([{label:"Real Estate Taxes",current:"",proforma:"",notes:"",perUnit:"",perSF:""}]);
@@ -574,7 +585,7 @@ function App(){
       officeAddress:"3501 Severn Avenue, Suite 19",officeCity:"Metairie, LA, 70002",
       agents,includeAerial,includeFloodMap,
       coverPhoto,teamPhoto,aerialPhoto,floodMapPhoto,mapPhoto,financialDividerPhoto,
-      photoSections,offeringText,summaryPairs,summaryNote,
+      photoSections,offeringText,summaryPairs,summarySplit,summaryNote,
       rentRoll,rentRollTotals:calcRentRollTotals(),rentRollFootnote,
       operatingStatement:{income:opIncome,expenses:opExpenses,totalExpenses:opTotalExp,expenseRatio:opExpRatio,noi:opNoi,footnotes:opFootnotes},
       cashFlow:{items:cfItems,financingTerms:cfTerms},
@@ -719,6 +730,13 @@ function App(){
       {step===5&&<div>
         <h2>Summary Metrics</h2>
         <p style={{fontSize:12,color:"var(--muted)",marginBottom:16}}>These appear on the right side of the Offering + Summary slide.</p>
+        <div className="card" style={{marginBottom:16}}>
+          <label style={{marginBottom:8}}>Parcel Split Header (optional - shown above the metrics for multi-parcel deals, e.g. per-building pricing)</label>
+          {summarySplit.map((sp,i)=><div key={i} className="grid2" style={{marginBottom:6}}>
+            <input value={sp.label} onChange={e=>{const n=[...summarySplit];n[i]={...n[i],label:e.target.value};setSummarySplit(n)}} placeholder="e.g. 8019 Trapier"/>
+            <input value={sp.value} onChange={e=>{const n=[...summarySplit];n[i]={...n[i],value:e.target.value};setSummarySplit(n)}} placeholder="e.g. $2,400,000"/>
+          </div>)}
+        </div>
         {summaryPairs.map((pair,i)=><div key={i} className="grid2" style={{marginBottom:8}}>
           <div style={{display:"flex",gap:6}}><input value={pair.left.label} onChange={e=>{const n=[...summaryPairs];n[i]={...n[i],left:{...n[i].left,label:e.target.value}};setSummaryPairs(n)}} style={{width:"40%"}} placeholder="Label"/><input value={pair.left.value} onChange={e=>{const n=[...summaryPairs];n[i]={...n[i],left:{...n[i].left,value:e.target.value}};setSummaryPairs(n)}} placeholder="Value"/></div>
           <div style={{display:"flex",gap:6}}><input value={pair.right.label} onChange={e=>{const n=[...summaryPairs];n[i]={...n[i],right:{...n[i].right,label:e.target.value}};setSummaryPairs(n)}} style={{width:"40%"}} placeholder="Label"/><input value={pair.right.value} onChange={e=>{const n=[...summaryPairs];n[i]={...n[i],right:{...n[i].right,value:e.target.value}};setSummaryPairs(n)}} placeholder="Value"/></div>
