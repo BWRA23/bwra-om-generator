@@ -479,6 +479,7 @@ function App(){
   const[opExpRatio,setOpExpRatio]=useState({current:"",proforma:""});
   const[opNoi,setOpNoi]=useState({current:"",proforma:""});
   const[opFootnotes,setOpFootnotes]=useState("");
+  const[importedFinancials,setImportedFinancials]=useState(null); // parsed listing.financials (CRM rent roll + expenses)
   const[cfItems,setCfItems]=useState([{label:"Purchase Price",current:"",proforma:""},{label:"Down Payment",current:"",proforma:""},{label:"Loan Amount",current:"",proforma:""},{label:"Monthly Payments",current:"",proforma:""},{label:"Annual Debt Service",current:"",proforma:""},{label:"NOI",current:"",proforma:""},{label:"Income After ADS",current:"",proforma:""},{label:"DSCR",current:"",proforma:""},{label:"Cash on Cash Return",current:"",proforma:""},{label:"Monthly Cash Flow",current:"",proforma:""}]);
   const[cfTerms,setCfTerms]=useState([{label:"Rate (%)",current:"",proforma:""},{label:"Amortization",current:"",proforma:""},{label:"LTV",current:"",proforma:""}]);
 
@@ -563,6 +564,11 @@ function App(){
           const agentIds=l.assigned_to.map(name=>{const found=BW_AGENTS.find(a=>a.name.toLowerCase().includes(name.toLowerCase())||a.id===name.toLowerCase());return found?found.id:null}).filter(Boolean);
           if(agentIds.length)setSelectedAgents(agentIds);
         }
+        // Parse the listing's CRM Financials (rent roll + operating statement).
+        let finParsed=null;
+        try{ finParsed = l.financials ? (typeof l.financials==="string"?JSON.parse(l.financials):l.financials) : null; }catch(e){ finParsed=null; }
+        const finHas=!!(finParsed && ((finParsed.rentRoll&&finParsed.rentRoll.length) || (finParsed.opStmt && ((finParsed.opStmt.expenses&&finParsed.opStmt.expenses.length) || Number(finParsed.opStmt.grossRentCurrent)))));
+        setImportedFinancials(finHas?Object.assign({},finParsed,{_units:Number(l.units)||0}):null);
         // If a full OM payload was saved to the CRM, hydrate the whole form from it.
         if(l.om_data&&typeof l.om_data==="object"){
           const om=l.om_data;
@@ -587,6 +593,9 @@ function App(){
             if(Array.isArray(ph.sections)){const secs=await Promise.all(ph.sections.map(async s=>({label:s.label||"",photos:await Promise.all(((s.photos&&s.photos.length)?s.photos:[null,null,null,null]).map(u=>u?urlToDataURL(u):null))})));setPhotoSections(secs);}
           })();}
           showToast("Full OM loaded from CRM");
+        } else if(finHas){
+          applyFinancials(finParsed,Number(l.units)||0);
+          showToast("Rent roll & financials imported from listing");
         } else {
           showToast("Listing data imported from CRM");
         }
@@ -659,6 +668,50 @@ function App(){
     let totalSF=0,mc=0,mm=0;
     rentRoll.forEach(u=>{totalSF+=Number(u.size)||0;mc+=Number(u.currentRent)||0;mm+=Number(u.marketRent)||0});
     return{totalSF,monthlyCurrentRent:mc,monthlyMarketRent:mm,annualCurrentRent:mc*12,annualMarketRent:mm*12}
+  }
+
+  // Map the CRM listing's Financials (rent roll + operating statement) into the OM
+  // form. Rent roll values stay numeric (the rent-roll slide formats them); operating
+  // statement values become formatted strings ("$12,000", "40%") to match how the
+  // op-statement slide renders each cell verbatim.
+  function applyFinancials(fin,units){
+    if(!fin)return;
+    units=Number(units)||0;
+    if(fin.rentRoll&&fin.rentRoll.length){
+      setRentRoll(fin.rentRoll.map(u=>({
+        unit:String(u.unit==null?"":u.unit),
+        type:u.type||"",
+        size:(Number(u.size)||0)||"",
+        currentRent:(Number(u.currentRent)||0)||"",
+        marketRent:(Number(u.marketRent)||0)||""
+      })));
+    }
+    const o=fin.opStmt;
+    if(o){
+      const gc=Number(o.grossRentCurrent)||0, gp=Number(o.grossRentProforma)||0;
+      const vpc=Number(o.vacancyPctCurrent)||0, vpp=Number(o.vacancyPctProforma)||0;
+      const vc=Math.round(gc*vpc/100), vp=Math.round(gp*vpp/100);
+      const egiC=gc-vc, egiP=gp-vp;
+      setOpIncome([
+        {label:"Gross Rental Income",  current:gc?fmt$(gc):"",     proforma:gp?fmt$(gp):"",     notes:"",   perUnit:"", perSF:""},
+        {label:"Physical Vacancy",     current:vc?"-"+fmt$(vc):"", proforma:vp?"-"+fmt$(vp):"", notes:"[1]",perUnit:"", perSF:""},
+        {label:"Effective Rental Income",current:egiC?fmt$(egiC):"",proforma:egiP?fmt$(egiP):"", notes:"",   perUnit:"", perSF:""},
+        {label:"Effective Gross Income", current:egiC?fmt$(egiC):"",proforma:egiP?fmt$(egiP):"", notes:"",   perUnit:"", perSF:""}
+      ]);
+      const exps=(o.expenses||[]).map(e=>{
+        const c=Number(e.current)||0, pr=Number(e.proforma)||0;
+        return{label:e.label||"",current:c?fmt$(c):"",proforma:pr?fmt$(pr):"",notes:e.notes||"",
+          perUnit:(units&&c)?fmt$(Math.round(c/units)):"",perSF:""};
+      });
+      if(exps.length)setOpExpenses(exps);
+      const tec=(o.expenses||[]).reduce((s,e)=>s+(Number(e.current)||0),0);
+      const tep=(o.expenses||[]).reduce((s,e)=>s+(Number(e.proforma)||0),0);
+      setOpTotalExp({current:tec?fmt$(tec):"",proforma:tep?fmt$(tep):"",
+        perUnit:(units&&tec)?fmt$(Math.round(tec/units)):"",perSF:""});
+      setOpExpRatio({current:egiC?Math.round(tec/egiC*100)+"%":"",proforma:egiP?Math.round(tep/egiP*100)+"%":""});
+      setOpNoi({current:(egiC-tec)?fmt$(egiC-tec):"",proforma:(egiP-tep)?fmt$(egiP-tep):""});
+      if(Array.isArray(o.notes)&&o.notes.length)setOpFootnotes(o.notes.join("  "));
+    }
   }
 
   // Generate PPTX
@@ -908,6 +961,11 @@ function App(){
       {/* STEP 6: Financials */}
       {step===6&&<div>
         <h2>Financial Data</h2>
+
+        {importedFinancials&&<div className="card" style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",borderColor:"var(--green)",background:"#f0fdf4"}}>
+          <div style={{fontSize:12,color:"var(--muted)"}}>This listing has a rent roll &amp; expenses saved in the CRM{importedFinancials.updatedAt?" (updated "+String(importedFinancials.updatedAt).split("T")[0]+")":""}.</div>
+          <button className="btn-green btn-sm" onClick={()=>{applyFinancials(importedFinancials,importedFinancials._units||0);showToast("Pulled rent roll & expenses from listing");}}>↺ Pull rent roll &amp; expenses from listing</button>
+        </div>}
 
         {/* Rent Roll */}
         <div className="section">
