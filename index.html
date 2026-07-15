@@ -567,7 +567,7 @@ function App(){
         // Parse the listing's CRM Financials (rent roll + operating statement).
         let finParsed=null;
         try{ finParsed = l.financials ? (typeof l.financials==="string"?JSON.parse(l.financials):l.financials) : null; }catch(e){ finParsed=null; }
-        const finHas=!!(finParsed && ((finParsed.rentRoll&&finParsed.rentRoll.length) || (finParsed.opStmt && ((finParsed.opStmt.expenses&&finParsed.opStmt.expenses.length) || Number(finParsed.opStmt.grossRentCurrent)))));
+        const finHas=!!(finParsed && ((finParsed.rentRoll&&finParsed.rentRoll.length) || (finParsed.opStmt && (Number(finParsed.opStmt.grossRentCurrent)>0 || Number(finParsed.opStmt.grossRentProforma)>0 || (finParsed.opStmt.expenses||[]).some(e=>(Number(e.current)||0)>0||(Number(e.proforma)||0)>0)))));
         setImportedFinancials(finHas?Object.assign({},finParsed,{_units:Number(l.units)||0}):null);
         // If a full OM payload was saved to the CRM, hydrate the whole form from it.
         if(l.om_data&&typeof l.om_data==="object"){
@@ -592,7 +592,10 @@ function App(){
             if(ph.financialDivider)setFinancialDividerPhoto(await urlToDataURL(ph.financialDivider));
             if(Array.isArray(ph.sections)){const secs=await Promise.all(ph.sections.map(async s=>({label:s.label||"",photos:await Promise.all(((s.photos&&s.photos.length)?s.photos:[null,null,null,null]).map(u=>u?urlToDataURL(u):null))})));setPhotoSections(secs);}
           })();}
-          showToast("Full OM loaded from CRM");
+          // Listing Financials are the source of truth for rent roll & expenses:
+          // always override the saved OM's copy with the current listing numbers.
+          if(finHas)applyFinancials(finParsed,Number(l.units)||0);
+          showToast(finHas?"OM loaded — rent roll & expenses refreshed from listing":"Full OM loaded from CRM");
         } else if(finHas){
           applyFinancials(finParsed,Number(l.units)||0);
           showToast("Rent roll & financials imported from listing");
@@ -692,24 +695,35 @@ function App(){
       const vpc=Number(o.vacancyPctCurrent)||0, vpp=Number(o.vacancyPctProforma)||0;
       const vc=Math.round(gc*vpc/100), vp=Math.round(gp*vpp/100);
       const egiC=gc-vc, egiP=gp-vp;
-      setOpIncome([
-        {label:"Gross Rental Income",  current:gc?fmt$(gc):"",     proforma:gp?fmt$(gp):"",     notes:"",   perUnit:"", perSF:""},
-        {label:"Physical Vacancy",     current:vc?"-"+fmt$(vc):"", proforma:vp?"-"+fmt$(vp):"", notes:"[1]",perUnit:"", perSF:""},
-        {label:"Effective Rental Income",current:egiC?fmt$(egiC):"",proforma:egiP?fmt$(egiP):"", notes:"",   perUnit:"", perSF:""},
-        {label:"Effective Gross Income", current:egiC?fmt$(egiC):"",proforma:egiP?fmt$(egiP):"", notes:"",   perUnit:"", perSF:""}
-      ]);
-      const exps=(o.expenses||[]).map(e=>{
-        const c=Number(e.current)||0, pr=Number(e.proforma)||0;
-        return{label:e.label||"",current:c?fmt$(c):"",proforma:pr?fmt$(pr):"",notes:e.notes||"",
-          perUnit:(units&&c)?fmt$(Math.round(c/units)):"",perSF:""};
-      });
-      if(exps.length)setOpExpenses(exps);
-      const tec=(o.expenses||[]).reduce((s,e)=>s+(Number(e.current)||0),0);
-      const tep=(o.expenses||[]).reduce((s,e)=>s+(Number(e.proforma)||0),0);
-      setOpTotalExp({current:tec?fmt$(tec):"",proforma:tep?fmt$(tep):"",
-        perUnit:(units&&tec)?fmt$(Math.round(tec/units)):"",perSF:""});
-      setOpExpRatio({current:egiC?Math.round(tec/egiC*100)+"%":"",proforma:egiP?Math.round(tep/egiP*100)+"%":""});
-      setOpNoi({current:(egiC-tec)?fmt$(egiC-tec):"",proforma:(egiP-tep)?fmt$(egiP-tep):""});
+      const hasIncome=gc>0||gp>0;
+      // Only real (non-zero) expense lines override the saved OM.
+      const realExps=(o.expenses||[]).filter(e=>(Number(e.current)||0)>0||(Number(e.proforma)||0)>0);
+      // Income rows — only override when the listing actually has income figures.
+      if(hasIncome){
+        setOpIncome([
+          {label:"Gross Rental Income",  current:gc?fmt$(gc):"",     proforma:gp?fmt$(gp):"",     notes:"",   perUnit:"", perSF:""},
+          {label:"Physical Vacancy",     current:vc?"-"+fmt$(vc):"", proforma:vp?"-"+fmt$(vp):"", notes:"[1]",perUnit:"", perSF:""},
+          {label:"Effective Rental Income",current:egiC?fmt$(egiC):"",proforma:egiP?fmt$(egiP):"", notes:"",   perUnit:"", perSF:""},
+          {label:"Effective Gross Income", current:egiC?fmt$(egiC):"",proforma:egiP?fmt$(egiP):"", notes:"",   perUnit:"", perSF:""}
+        ]);
+      }
+      // Expense rows + totals — only override when the listing actually has expenses.
+      if(realExps.length){
+        setOpExpenses(realExps.map(e=>{
+          const c=Number(e.current)||0, pr=Number(e.proforma)||0;
+          return{label:e.label||"",current:c?fmt$(c):"",proforma:pr?fmt$(pr):"",notes:e.notes||"",
+            perUnit:(units&&c)?fmt$(Math.round(c/units)):"",perSF:""};
+        }));
+        const tec=realExps.reduce((s,e)=>s+(Number(e.current)||0),0);
+        const tep=realExps.reduce((s,e)=>s+(Number(e.proforma)||0),0);
+        setOpTotalExp({current:tec?fmt$(tec):"",proforma:tep?fmt$(tep):"",
+          perUnit:(units&&tec)?fmt$(Math.round(tec/units)):"",perSF:""});
+        // NOI + expense ratio need income; only set them when income is present too.
+        if(hasIncome){
+          setOpExpRatio({current:egiC?Math.round(tec/egiC*100)+"%":"",proforma:egiP?Math.round(tep/egiP*100)+"%":""});
+          setOpNoi({current:(egiC-tec)?fmt$(egiC-tec):"",proforma:(egiP-tep)?fmt$(egiP-tep):""});
+        }
+      }
       if(Array.isArray(o.notes)&&o.notes.length)setOpFootnotes(o.notes.join("  "));
     }
   }
@@ -963,8 +977,8 @@ function App(){
         <h2>Financial Data</h2>
 
         {importedFinancials&&<div className="card" style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,flexWrap:"wrap",borderColor:"var(--green)",background:"#f0fdf4"}}>
-          <div style={{fontSize:12,color:"var(--muted)"}}>This listing has a rent roll &amp; expenses saved in the CRM{importedFinancials.updatedAt?" (updated "+String(importedFinancials.updatedAt).split("T")[0]+")":""}.</div>
-          <button className="btn-green btn-sm" onClick={()=>{applyFinancials(importedFinancials,importedFinancials._units||0);showToast("Pulled rent roll & expenses from listing");}}>↺ Pull rent roll &amp; expenses from listing</button>
+          <div style={{fontSize:12,color:"var(--muted)"}}>Rent roll &amp; expenses were loaded from this listing's CRM Financials{importedFinancials.updatedAt?" (updated "+String(importedFinancials.updatedAt).split("T")[0]+")":""}. Edits here won't change the listing — use the button to reset back to the listing's numbers.</div>
+          <button className="btn-green btn-sm" onClick={()=>{applyFinancials(importedFinancials,importedFinancials._units||0);showToast("Re-synced rent roll & expenses from listing");}}>↺ Re-sync from listing</button>
         </div>}
 
         {/* Rent Roll */}
