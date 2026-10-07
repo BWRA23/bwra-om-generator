@@ -122,6 +122,32 @@ table.fin-table tr.vac td input{color:#8c2b34;font-weight:600}
 table.fin-table tr.tot td{font-weight:700;background:var(--surface2);font-size:12px}
 table.fin-table td.ro{color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
 table.fin-table input:disabled,input:disabled{background:var(--surface2);color:var(--muted)}
+.shell{display:flex;align-items:flex-start;min-height:calc(100vh - 53px)}
+.main{flex:1;min-width:0}
+.side{width:272px;flex:none;position:sticky;top:53px;height:calc(100vh - 53px);overflow-y:auto;background:#18181b;color:#e4e4e7;padding:14px 10px 24px}
+.side-new{width:100%;background:var(--red);color:#fff;padding:10px;border-radius:8px;font-weight:700;margin-bottom:14px}
+.side-new:hover{background:#b91c1c}
+.side-sec{margin-bottom:18px}
+.side-h{display:flex;justify-content:space-between;align-items:center;font-family:var(--fontH);font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:#a1a1aa;padding:0 6px 6px;border-bottom:1px solid #2a2a2e;margin-bottom:6px}
+.side-h span{background:#27272a;color:#e4e4e7;border-radius:999px;padding:1px 8px;font-family:var(--font);font-size:11px;letter-spacing:0}
+.side-empty{font-size:11px;color:#71717a;padding:6px}
+.side-item{display:flex;gap:9px;align-items:center;padding:7px 6px;border-radius:7px;cursor:pointer;position:relative;border-left:3px solid transparent}
+.side-item:hover{background:#232327}
+.side-item.active{background:#27272a;border-left-color:var(--red)}
+.side-thumb{width:42px;height:32px;border-radius:4px;object-fit:cover;flex:none;background:#2f2f33}
+.side-txt{min-width:0;flex:1}
+.side-title{font-size:12.5px;font-weight:600;color:#fafafa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-meta{font-size:10.5px;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.side-del{background:none;color:#71717a;padding:0 4px;font-size:15px;opacity:0}
+.side-item:hover .side-del{opacity:1}.side-del:hover{color:#f87171}
+.nav-toggle{display:none}
+.side-scrim{display:none}
+.save-state{font-size:11.5px;color:var(--green)}.save-state.dirty{color:var(--amber)}.save-state.bad{color:var(--red)}
+.top-email{font-size:12px;color:var(--muted)}
+.om-banner{font-size:12px;padding:8px 12px;border-radius:6px;background:#eef2ff;color:#3730a3;margin-bottom:14px}
+.om-banner.done{background:#ecfdf5;color:#065f46}
+.link-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin:0 0 16px;text-align:left}
+@media(max-width:900px){.nav-toggle{display:inline-block}.top-email{display:none}.side{position:fixed;left:0;top:53px;z-index:90;transform:translateX(-100%);transition:transform .2s;box-shadow:4px 0 20px rgba(0,0,0,.3)}.side.open{transform:none}.side-scrim{display:block;position:fixed;inset:53px 0 0 0;background:rgba(0,0,0,.3);z-index:80}}
 </style>
 </head>
 <body>
@@ -658,10 +684,13 @@ const BW_AGENTS=[
 function fileToDataURL(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(file)})}
 function fileToText(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsText(file)})}
 function fileToArrayBuffer(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsArrayBuffer(file)})}
+// Saved photo URL -> data URL. If the fetch fails or isn't an image, keep the URL itself
+// (cropToBox can still load it), so a hiccup never turns a photo into garbage.
 async function urlToDataURL(url){
-  try{if(!url)return null;if(/^data:/.test(url))return url;const r=await fetch(url);const b=await r.blob();return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});}catch(e){return null;}
+  if(!url)return null;if(/^data:/.test(url))return url;
+  try{const r=await fetch(url);const b=await r.blob();if(!r.ok||!/^image\//.test(b.type))return url;return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});}catch(e){return url;}
 }
-function loadImg(src){return new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error("Couldn't read an image (HEIC photos must be converted to JPG first)"));im.src=src})}
+function loadImg(src){return new Promise((res,rej)=>{const im=new Image();if(/^https?:/.test(src))im.crossOrigin="anonymous";im.onload=()=>res(im);im.onerror=()=>rej(new Error("Couldn't read an image (HEIC photos must be converted to JPG first)"));im.src=src})}
 // Cover-crop an image to a box aspect (inches) and re-encode as JPEG. Keeps photos undistorted
 // and the PPTX small. vBias: 0 = keep top, 0.5 = center (headshots use a slight top bias).
 async function cropToBox(src,wIn,hIn,maxPx,vBias){
@@ -696,12 +725,20 @@ async function spreadsheetToText(file){const X=await loadXLSX();const wb=X.read(
 function expandStreet(a){const m={st:"Street",ave:"Avenue",av:"Avenue",blvd:"Boulevard",dr:"Drive",rd:"Road",ln:"Lane",ct:"Court",pl:"Place",pkwy:"Parkway",hwy:"Highway",cir:"Circle",ter:"Terrace",sq:"Square"};
   return String(a||"").trim().replace(/\b([A-Za-z]+)\.?$/,(w,t)=>m[t.toLowerCase()]||w)}
 function money(n){return omMoney(omNum(n))}
+// Shrink big phone photos before they go into the form (keeps saves and the PPTX light).
+async function shrinkImage(src,maxPx){if(!src||!/^data:image/.test(src))return src;try{const im=await loadImg(src);const w=im.naturalWidth,h=im.naturalHeight,m=maxPx||2400;if(Math.max(w,h)<=m&&src.length<2.5e6)return src;const k=Math.min(1,m/Math.max(w,h));const c=document.createElement("canvas");c.width=Math.round(w*k);c.height=Math.round(h*k);c.getContext("2d").drawImage(im,0,0,c.width,c.height);return c.toDataURL("image/jpeg",0.86)}catch(e){return src}}
+function hashStr(str){let h=5381;const s=String(str||"");const step=Math.max(1,Math.floor(s.length/4000));for(let i=0;i<s.length;i+=step)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36)+s.length.toString(36)}
+function timeAgo(t){if(!t)return"";const d=(Date.now()-new Date(t).getTime())/1000;if(d<60)return"just now";if(d<3600)return Math.floor(d/60)+"m ago";if(d<86400)return Math.floor(d/3600)+"h ago";if(d<86400*7)return Math.floor(d/86400)+"d ago";return new Date(t).toLocaleDateString()}
+function nameFromEmail(e){const n=String(e||"").split("@")[0];return n?n.charAt(0).toUpperCase()+n.slice(1):""}
+function newFileId(){return "file_"+Math.random().toString(36).slice(2,10)}
+function crmSafePath(id,name){let safe=String(name||"file").replace(/[^A-Za-z0-9._-]+/g,"_");if(safe.length>120)safe=safe.slice(-120);return id+"/"+safe}
+async function crmUpload(path,blob){const token=localStorage.getItem("sb_token");const r=await fetch(SB_URL+"/storage/v1/object/crm-files/"+String(path).split("/").map(encodeURIComponent).join("/"),{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token,"Content-Type":blob.type||"application/octet-stream","x-upsert":"true"},body:blob});if(!r.ok)throw new Error("Upload to the CRM file share failed ("+r.status+"): "+(await r.text()).slice(0,160));return path}
 
 // ════════════════════════════════════════════════════════
 // SMALL UI PIECES
 // ════════════════════════════════════════════════════════
 function PhotoUpload({value,onChange,label,tall}){
-  const handleFile=async(e)=>{const f=e.target.files?.[0];if(f){const d=await fileToDataURL(f);onChange(d)}e.target.value=""};
+  const handleFile=async(e)=>{const f=e.target.files?.[0];e.target.value="";if(f){const d=await shrinkImage(await fileToDataURL(f));onChange(d)}};
   return <div className="photo-drop" style={{position:"relative",minHeight:tall?150:100}}>
     {value?<><img src={value}/><button onClick={(e)=>{e.stopPropagation();onChange(null)}} className="x-btn">×</button></>:<span style={{color:"var(--muted)",fontSize:12}}>{label||"Click or drop image"}</span>}
     <input type="file" accept="image/*" onChange={handleFile}/>
@@ -745,6 +782,7 @@ const DEFAULT_MARKET=()=>({source:"",rows:[]});
 const DEFAULT_CF_ITEMS=()=>[{label:"Purchase Price",current:"",proforma:""},{label:"Down Payment",current:"",proforma:""},{label:"Loan Amount",current:"",proforma:""},{label:"Annual Debt Service",current:"",proforma:""},{label:"NOI",current:"",proforma:""},{label:"Cash Flow After Debt Service",current:"",proforma:""},{label:"DSCR",current:"",proforma:""},{label:"Cash on Cash Return",current:"",proforma:""}];
 const DEFAULT_CF_TERMS=()=>[{label:"Rate (%)",current:"",proforma:""},{label:"Amortization",current:"",proforma:""},{label:"LTV",current:"",proforma:""}];
 const MAX_GRID=20;
+const PPTX_MIME="application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const AI_PLACEHOLDER="Describe the property in your own words, like you'd tell a buyer. e.g. “Historic 1919 corner building in the Tremé, renovated in 2019, 30 x 112 lot in the HDLC district, steps from the French Quarter, value-add through lease-up of the vacant unit and rent growth.”\n\nUnit count, unit mix, occupancy and rents come from the rent roll automatically, so you don’t need to repeat them.";
 
 // ════════════════════════════════════════════════════════
@@ -755,7 +793,6 @@ function App(){
   const[step,setStep]=useState(1);
   const[toast,setToast]=useState("");
   const[generating,setGenerating]=useState(false);
-  const[saving,setSaving]=useState(false);
   const[genErrors,setGenErrors]=useState(null);
   const[crmPhotos,setCrmPhotos]=useState([]);
   const[loadingCrmPhotos,setLoadingCrmPhotos]=useState(false);
@@ -764,6 +801,22 @@ function App(){
   const[loadingListings,setLoadingListings]=useState(false);
   const[selectedListingId,setSelectedListingId]=useState("");
   const[unitsHint,setUnitsHint]=useState("");
+  // Drafts / completed OMs (public.oms)
+  const[omId,setOmId]=useState(null);
+  const[omRow,setOmRow]=useState(null);           // status, file ids, completed info
+  const[omList,setOmList]=useState([]);
+  const[omListLoading,setOmListLoading]=useState(false);
+  const[savingDraft,setSavingDraft]=useState(false);
+  const[lastSavedFp,setLastSavedFp]=useState("");
+  const[lastSavedAt,setLastSavedAt]=useState(null);
+  const[saveError,setSaveError]=useState("");
+  const[publishing,setPublishing]=useState(false);
+  const[pdfUploading,setPdfUploading]=useState(false);
+  const[myName,setMyName]=useState("");
+  const[navOpen,setNavOpen]=useState(false);
+  const photoUrlMap=useRef(new Map());            // data URL -> uploaded om-photos URL
+  const fpResetPending=useRef(false);
+  const savingRef=useRef(false);
 
   // Property
   const[propertyName,setPropertyName]=useState("");
@@ -849,7 +902,14 @@ function App(){
     setUser(JSON.parse(localStorage.getItem("sb_user")));
   })()},[]);
   useEffect(()=>{const onExpired=()=>{setUser(null);showToast("Session expired - please sign in again");};window.addEventListener("sb-session-expired",onExpired);return()=>window.removeEventListener("sb-session-expired",onExpired)},[]);
-  useEffect(()=>{if(!user)return;const urlId=new URLSearchParams(window.location.search).get("id");(async()=>{await fetchListings();if(urlId){setSelectedListingId(urlId);await loadListing(urlId)}})()},[user]);
+  useEffect(()=>{if(!user)return;const qs=new URLSearchParams(window.location.search);const urlId=qs.get("id");const omParam=qs.get("om");(async()=>{
+    loadMyName();const [ls,oms]=await Promise.all([fetchListings(),fetchOMs()]);
+    if(omParam){const r=(oms||[]).find(o=>o.id===omParam);if(r){await openOM(r,true);return}}
+    if(urlId){const isUuid=/^[0-9a-f]{8}-/i.test(urlId);const lg=isUuid?((ls||[]).find(l=>l.id===urlId)||{}).legacy_id:urlId;
+      const existing=(oms||[]).find(o=>o.listing_legacy_id&&o.listing_legacy_id===lg);
+      if(existing){await openOM(existing,true);showToast("Opened the saved OM for this listing");return}
+      setSelectedListingId(urlId);await loadListing(urlId)}
+  })()},[user]);
 
   function showToast(msg){setToast(msg);setTimeout(()=>setToast(""),3500)}
 
@@ -864,10 +924,127 @@ function App(){
   const introText=introEdited?rentRollIntro:autoIntro;
   const agents=selectedAgents.map(id=>{const a=BW_AGENTS.find(x=>x.id===id);return a?Object.assign({},a,agentEdits[id]||{}):null}).filter(Boolean);
 
+  // ── Draft tracking: a stable fingerprint of everything on the form ──
+  const fpUrl=d=>!d?null:(/^https?:/.test(d)?d:"h"+hashStr(d));
+  const fingerprint=JSON.stringify(collectData(fpUrl))+"|"+importedLegacyId;
+  const hasContent=!!(street.trim()||propertyName.trim()||importedLegacyId);
+  const isDirty=hasContent&&fingerprint!==lastSavedFp;
+  const isDirtyRef=useRef(false);isDirtyRef.current=isDirty;
+  const omIdRef=useRef(null);omIdRef.current=omId;
+  useEffect(()=>{if(fpResetPending.current){fpResetPending.current=false;setLastSavedFp(fingerprint)}});
+  useEffect(()=>{if(!user||!isDirty)return;if(!omId&&!street.trim())return;const t=setTimeout(()=>{if(isDirtyRef.current)saveDraft({silent:true})},30000);return()=>clearTimeout(t)},[fingerprint,user,isDirty,omId]);
+  useEffect(()=>{const h=e=>{if(isDirtyRef.current){e.preventDefault();e.returnValue=""}};window.addEventListener("beforeunload",h);return()=>window.removeEventListener("beforeunload",h)},[]);
+
+  function collectData(urlFor){
+    return{version:2,propertyName,unitsHint,
+      property:{street,extraAddresses,city,state:stateAbbr,zip,neighborhood,unitDescription,coverTag,priceLabel,askingPrice,gbaSf,siteSf,yearBuilt,yearRenovated,lotDescription,styleWord},
+      selectedAgents,agentEdits,offeringText,aiPrompt,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,
+      rentRoll,rentRollDate,rentRollIntro:introEdited?rentRollIntro:"",introEdited,vacancyPct,otherIncome,expenses,expenseProfile,opexFootnote,market,
+      includeCashFlow,cashFlow:{items:cfItems,financingTerms:cfTerms},includeAerial,includeFloodMap,showPhotoLabels,pageLabels,mapZoom,
+      photos:{cover:urlFor(coverPhoto),hero:urlFor(heroPhoto),divider:urlFor(dividerPhoto),map:urlFor(mapPhoto),aerial:urlFor(aerialPhoto),flood:urlFor(floodMapPhoto),
+        grid:gridPhotos.map(urlFor),agents:Object.fromEntries(Object.entries(agentPhotos).filter(([k,v])=>v).map(([k,v])=>[k,urlFor(v)]))}};
+  }
+  async function loadMyName(){try{const em=(user&&user.email)||"";const r=await sbFetch("/rest/v1/profiles?select=name&email=eq."+encodeURIComponent(em));setMyName((r&&r[0]&&r[0].name)||nameFromEmail(em))}catch(e){setMyName(nameFromEmail(user&&user.email))}}
+  async function fetchOMs(){setOmListLoading(true);let rows=[];try{rows=await sbFetch("/rest/v1/oms?select=id,title,address,status,listing_id,listing_legacy_id,thumb_url,updated_at,updated_by,created_by,completed_at,completed_by,pptx_file_id,pdf_file_id&deleted_at=is.null&order=updated_at.desc&limit=300")||[];setOmList(rows)}catch(e){console.log("Could not load OMs:",e.message)}setOmListLoading(false);return rows}
+  async function uploadPhotos(id){
+    const all=[coverPhoto,heroPhoto,dividerPhoto,mapPhoto,aerialPhoto,floodMapPhoto].concat(gridPhotos,Object.values(agentPhotos)).filter(x=>x&&/^data:/.test(x)&&!photoUrlMap.current.has(x));
+    const uniq=Array.from(new Set(all));
+    for(let i=0;i<uniq.length;i+=4){await Promise.all(uniq.slice(i,i+4).map(async d=>{const u=await uploadPhoto(d,"oms/"+id+"/"+hashStr(d)+".jpg");photoUrlMap.current.set(d,u)}))}
+    return d=>!d?null:(/^https?:/.test(d)?d:(photoUrlMap.current.get(d)||null));
+  }
+  async function saveDraft(opts){
+    opts=opts||{};if(savingRef.current)return omIdRef.current;
+    if(!hasContent){if(!opts.silent)showToast("Add the property address first");return null}
+    savingRef.current=true;setSavingDraft(true);setSaveError("");const fpAtStart=fingerprint;
+    try{
+      let id=omIdRef.current;
+      const meta={title:(street.trim()||propertyName.trim()||"Untitled OM"),address:[street.trim(),cityLine].filter(Boolean).join(", "),
+        listing_id:(selectedListingId&&/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(selectedListingId))?selectedListingId:null,listing_legacy_id:importedLegacyId||null};
+      if(!id){const r=await sbFetch("/rest/v1/oms",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify([Object.assign({},meta,{status:"in_progress",data:{}})])});
+        id=r&&r[0]&&r[0].id;if(!id)throw new Error("Couldn't create the draft");omIdRef.current=id;setOmId(id);setOmRow(r[0]);try{window.history.replaceState(null,"","?om="+id)}catch(e){}}
+      const urlFor=await uploadPhotos(id);
+      const data=collectData(urlFor);
+      const r2=await sbFetch("/rest/v1/oms?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify(Object.assign({},meta,{data,thumb_url:urlFor(coverPhoto)||urlFor(heroPhoto)||null}))});
+      if(r2&&r2[0])setOmRow(r2[0]);
+      setLastSavedFp(fpAtStart);setLastSavedAt(new Date().toISOString());fetchOMs();
+      if(!opts.silent)showToast("Progress saved");
+      return id;
+    }catch(e){const m=e.message||String(e);setSaveError(m);if(!opts.silent)showToast("Save failed: "+m.slice(0,120));return null}
+    finally{savingRef.current=false;setSavingDraft(false)}
+  }
+  async function openOM(row,skipConfirm){
+    if(!skipConfirm&&row.id!==omId&&isDirtyRef.current&&!window.confirm("You have unsaved changes on this OM. Open the other one anyway?"))return;
+    try{
+      const r=await sbFetch("/rest/v1/oms?id=eq."+row.id+"&select=*");const o=r&&r[0];if(!o){showToast("That OM is no longer available");return}
+      resetForm();photoUrlMap.current=new Map();setOmId(o.id);setOmRow(o);setGenErrors(null);
+      if(o.listing_legacy_id){setImportedLegacyId(o.listing_legacy_id);setSelectedListingId(o.listing_id||"")}
+      const dd=o.data||{};if(dd.propertyName!=null)setPropertyName(dd.propertyName);if(dd.unitsHint!=null)setUnitsHint(String(dd.unitsHint));
+      setNavOpen(false);try{window.history.replaceState(null,"","?om="+o.id)}catch(e){}
+      await hydrateOM(Object.assign({},dd,{version:2}));
+      fpResetPending.current=true;setLastSavedAt(o.updated_at);setSaveError("");
+      if(o.listing_legacy_id)fetchCrmPhotos(o.listing_legacy_id);
+    }catch(e){showToast("Couldn't open that OM: "+e.message)}
+  }
+  async function deleteOM(row){
+    if(!window.confirm("Delete the draft \u201c"+(row.title||"Untitled")+"\u201d? You can't undo this from the app."))return;
+    try{await sbFetch("/rest/v1/oms?id=eq."+row.id,{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({deleted_at:new Date().toISOString(),deleted_by:(user&&user.email)||""})});
+      if(row.id===omId){resetForm();setOmId(null);setOmRow(null);setLastSavedFp("");try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}}
+      fetchOMs();showToast("Draft deleted")}catch(e){showToast("Delete failed: "+e.message)}
+  }
+  function linkListing(id){const l=crmListings.find(x=>x.id===id);if(!l){setSelectedListingId("");setImportedLegacyId("");return}setSelectedListingId(l.id);setImportedLegacyId(l.legacy_id||"");if(l.legacy_id)fetchCrmPhotos(l.legacy_id);showToast("Linked to "+(l.name||l.address))}
+  async function upsertCrmFile(fid,isExisting,row){
+    if(isExisting)await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify(row)});
+    else await sbFetch("/rest/v1/files",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([Object.assign({legacy_id:fid,uploaded_by:myName||nameFromEmail(user&&user.email),data_url:""},row)])});
+    try{await sbFetch("/rest/v1/file_audit_log",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([{action:isExisting?"update":"upload",file_id:fid,file_name:row.name,listing_id:row.linked_listing,folder_path:"",user_name:myName||nameFromEmail(user&&user.email)}])})}catch(e){}
+  }
+  async function existingPath(fid){if(!fid)return null;try{const ex=await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid)+"&select=storage_path,linked_listing,deleted_at");return(ex&&ex[0]&&ex[0].linked_listing===importedLegacyId)?ex[0].storage_path:null}catch(e){return null}}
+  // ── Complete: build the PPTX, file it in the CRM (file share + deal room), mark the OM completed ──
+  async function publishOM(){
+    if(!importedLegacyId){setGenErrors({errors:["Link this OM to its CRM listing first (just below) so it files under the right property."],warnings:[]});return}
+    setPublishing(true);setGenErrors(null);
+    try{
+      let mapOverride=null;if(!mapPhoto&&street.trim()&&city.trim())mapOverride=await generateMap(mapZoom);
+      const d=await buildOMData(mapOverride);const v=validateOM(d,fin);
+      if(v.errors.length){setGenErrors(v);showToast("Fix the items listed before publishing");return}
+      const id=await saveDraft({silent:true});if(!id)throw new Error("Couldn't save the OM before publishing");
+      const blob0=await generateFullOM(d).write({outputType:"blob"});const blob=blob0.type?blob0:new Blob([blob0],{type:PPTX_MIME});
+      const fname=(street.trim()||propertyName||"Property")+" - Offering Memorandum.pptx";
+      const hasPdf=!!(omRow&&omRow.pdf_file_id);
+      let fid=omRow&&omRow.pptx_file_id;let path=await existingPath(fid);if(!path)fid=null;
+      const isExisting=!!fid;if(!fid)fid=newFileId();if(!path)path=crmSafePath(fid,fname);
+      await crmUpload(path,blob);
+      await upsertCrmFile(fid,isExisting,{name:fname,size:blob.size,mime_type:PPTX_MIME,linked_listing:importedLegacyId,storage_path:path,folder_path:"",category:"general",in_deal_room:!hasPdf,notes:"Generated by the OM Generator",deleted_at:null});
+      const r=await sbFetch("/rest/v1/oms?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify({status:"completed",completed_at:new Date().toISOString(),completed_by:(user&&user.email)||"",pptx_file_id:fid})});
+      if(r&&r[0])setOmRow(r[0]);
+      const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},3000);
+      setGenErrors(v.warnings.length?{errors:[],warnings:v.warnings}:null);fetchOMs();
+      showToast(isExisting?"Republished — the CRM copy is updated":"Published to the CRM file share and deal room");
+    }catch(e){console.error(e);setGenErrors({errors:["Publishing failed: "+(e.message||e)],warnings:[]})}
+    finally{setPublishing(false)}
+  }
+  // ── Final PDF: goes to the deal room in place of the PowerPoint ──
+  async function uploadFinalPdf(file){
+    if(!file)return;if(!(file.type==="application/pdf"||/\.pdf$/i.test(file.name))){showToast("Choose a PDF file");return}
+    if(!omRow||omRow.status!=="completed"||!importedLegacyId){showToast("Publish the OM first");return}
+    if(file.size>50*1024*1024){showToast("That PDF is over 50 MB — compress it first");return}
+    setPdfUploading(true);
+    try{
+      const fname=(street.trim()||propertyName||"Property")+" - Offering Memorandum.pdf";
+      let fid=omRow.pdf_file_id;let path=await existingPath(fid);if(!path)fid=null;
+      const isExisting=!!fid;if(!fid)fid=newFileId();if(!path)path=crmSafePath(fid,fname);
+      await crmUpload(path,file);
+      await upsertCrmFile(fid,isExisting,{name:fname,size:file.size,mime_type:"application/pdf",linked_listing:importedLegacyId,storage_path:path,folder_path:"",category:"general",in_deal_room:true,notes:"Final OM PDF (OM Generator)",deleted_at:null});
+      if(omRow.pptx_file_id)await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(omRow.pptx_file_id),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({in_deal_room:false})});
+      const r=await sbFetch("/rest/v1/oms?id=eq."+omRow.id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify({pdf_file_id:fid})});if(r&&r[0])setOmRow(r[0]);
+      fetchOMs();showToast("PDF is in the deal room; the PowerPoint stays in the file share");
+    }catch(e){console.error(e);showToast("PDF upload failed: "+(e.message||e))}
+    finally{setPdfUploading(false)}
+  }
+
   async function fetchListings(){
     setLoadingListings(true);
-    try{const data=await sbFetch("/rest/v1/listings?select=id,name,address,city,units,asking_price,price_per_unit,cap_rate,occupancy,status,market_status,assigned_to,type&deleted_at=is.null&order=created_at.desc");if(Array.isArray(data))setCrmListings(data)}catch(e){console.log("Could not fetch listings:",e.message)}
-    setLoadingListings(false);
+    let data=[];try{data=await sbFetch("/rest/v1/listings?select=id,legacy_id,name,address,city,units,asking_price,price_per_unit,cap_rate,occupancy,status,market_status,assigned_to,type&deleted_at=is.null&order=created_at.desc");if(Array.isArray(data))setCrmListings(data)}catch(e){console.log("Could not fetch listings:",e.message)}
+    setLoadingListings(false);return data;
   }
 
   // CRM listing.financials (CRM's own rent roll + op statement) -> OM model
@@ -901,7 +1078,7 @@ function App(){
       if(typeof om.summaryNote==="string")setSummaryNote(om.summaryNote);
       if(Array.isArray(om.rentRoll)&&om.rentRoll.some(u=>omHas(u.currentRent)||omHas(u.marketRent)))applyCrmFinancials({rentRoll:om.rentRoll});
     }
-    const L=async u=>u?await urlToDataURL(u):null;
+    const L=async u=>{if(!u)return null;const d=await urlToDataURL(u);if(d&&/^https?:/.test(u))photoUrlMap.current.set(d,u);return d};
     if(ph.cover)setCoverPhoto(await L(ph.cover));
     if(ph.hero||ph.team)setHeroPhoto(await L(ph.hero||ph.team));
     if(ph.divider||ph.financialDivider)setDividerPhoto(await L(ph.divider||ph.financialDivider));
@@ -940,7 +1117,8 @@ function App(){
   }
   function handleImportListing(id){setSelectedListingId(id);if(id)loadListing(id)}
 
-  function handleStartFresh(){
+  function handleStartFresh(){if(isDirty&&!window.confirm("You have unsaved changes on this OM. Start a new one anyway?"))return;resetForm();setOmId(null);setOmRow(null);setLastSavedFp("");setLastSavedAt(null);setSaveError("");try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}showToast("New OM started")}
+  function resetForm(){
     setSelectedListingId("");setImportedLegacyId("");setCrmPhotos([]);setUnitsHint("");setGenErrors(null);
     setPropertyName("");setStreet("");setExtraAddresses([]);setCity("");setStateAbbr("LA");setZip("");setNeighborhood("");setUnitDescription("");setCoverTag("FOR SALE");setPriceLabel("BUILDING PRICE");
     setAskingPrice("");setGbaSf("");setSiteSf("");setYearBuilt("");setYearRenovated("");setLotDescription("");setStyleWord("");
@@ -951,7 +1129,7 @@ function App(){
     setSummaryOverrides({});setSummaryExtra([]);setSummaryNote("");setShowPricePerUnit(false);
     setRentRoll(DEFAULT_RENT_ROLL());setRentRollDate("");setRentRollIntro("");setIntroEdited(false);setVacancyPct("5");setOtherIncome("0");setExpenses(DEFAULT_EXPENSES());setExpenseProfile("");setOpexFootnote("");setMarket(DEFAULT_MARKET());
     setIncludeCashFlow(false);setCfItems(DEFAULT_CF_ITEMS());setCfTerms(DEFAULT_CF_TERMS());setFinFiles([]);setFinNotes("");setFinResult(null);setFinUndo(null);
-    setStep(1);showToast("Form cleared — start fresh");
+    setStep(1);
   }
 
   // ── CRM photos ──
@@ -985,7 +1163,7 @@ function App(){
   async function addGridFiles(files){
     const list=Array.from(files||[]).filter(f=>/^image\//.test(f.type)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
     const room=MAX_GRID-gridPhotos.length;if(list.length>room)showToast("Only "+MAX_GRID+" photos fit (5 pages) — extra photos skipped");
-    const urls=await Promise.all(list.slice(0,Math.max(0,room)).map(fileToDataURL));setGridPhotos(prev=>prev.concat(urls).slice(0,MAX_GRID));
+    const urls=await Promise.all(list.slice(0,Math.max(0,room)).map(async f=>shrinkImage(await fileToDataURL(f))));setGridPhotos(prev=>prev.concat(urls).slice(0,MAX_GRID));
   }
   function moveGrid(i,dir){setGridPhotos(prev=>{const n=[...prev];const j=i+dir;if(j<0||j>=n.length)return prev;[n[i],n[j]]=[n[j],n[i]];return n})}
 
@@ -1090,27 +1268,7 @@ function App(){
     setGenerating(false);
   }
 
-  async function saveToCRM(){
-    if(!selectedListingId){showToast("Import a CRM listing first, then Save");return}
-    setSaving(true);
-    try{
-      const stamp=Date.now();const base=selectedListingId+"/";
-      const up=(d,name)=>d?uploadPhoto(d,base+name+"-"+stamp+".jpg"):Promise.resolve(null);
-      const photos={cover:await up(coverPhoto,"cover"),hero:await up(heroPhoto,"hero"),divider:await up(dividerPhoto,"divider"),map:await up(mapPhoto,"map"),
-        aerial:await up(aerialPhoto,"aerial"),flood:await up(floodMapPhoto,"flood"),grid:await Promise.all(gridPhotos.map((p,i)=>up(p,"grid"+i))),
-        agents:Object.fromEntries(await Promise.all(Object.entries(agentPhotos).filter(([k,v])=>v).map(async([k,v])=>[k,await up(v,"agent-"+k)])))};
-      const om_data={version:2,
-        property:{street,extraAddresses,city,state:stateAbbr,zip,neighborhood,unitDescription,coverTag,priceLabel,askingPrice,gbaSf,siteSf,yearBuilt,yearRenovated,lotDescription,styleWord},
-        selectedAgents,agentEdits,offeringText,aiPrompt,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,
-        rentRoll,rentRollDate,rentRollIntro:introText,introEdited,vacancyPct,otherIncome,expenses,expenseProfile,opexFootnote,market,
-        includeCashFlow,cashFlow:{items:cfItems,financingTerms:cfTerms},includeAerial,includeFloodMap,showPhotoLabels,pageLabels,mapZoom,photos};
-      await sbFetch("/rest/v1/listings?id=eq."+encodeURIComponent(selectedListingId),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({om_data})});
-      showToast("Saved to CRM — re-importing this listing rebuilds the whole OM");
-    }catch(e){console.error(e);showToast("Save failed: "+(e.message||"error"))}
-    setSaving(false);
-  }
-
-  function handleLogout(){localStorage.removeItem("sb_token");localStorage.removeItem("sb_refresh");localStorage.removeItem("sb_user");setUser(null)}
+  function handleLogout(){if(isDirtyRef.current&&!window.confirm("You have unsaved changes. Log out anyway?"))return;localStorage.removeItem("sb_token");localStorage.removeItem("sb_refresh");localStorage.removeItem("sb_user");setUser(null)}
   if(!user)return <LoginScreen onLogin={setUser}/>;
 
   const steps=["Property","Deal Team","Photos","Offering","Summary","Financials","Generate"];
@@ -1122,13 +1280,34 @@ function App(){
 
   return <>
     <div className="topbar">
+      <button className="btn-dark btn-sm nav-toggle" onClick={()=>setNavOpen(!navOpen)}>☰ OMs</button>
       <h1>BRIDGEWATER <span className="red">OM GENERATOR</span></h1>
       <div style={{flex:1}}/>
-      <button className="btn-dark btn-sm" onClick={handleStartFresh} style={{fontSize:11}}>✦ New OM</button>
-      <span style={{fontSize:12,color:"var(--muted)"}}>{user.email}</span>
+      {hasContent&&<span className={"save-state"+(saveError?" bad":isDirty?" dirty":"")} title={saveError||""}>{savingDraft?"Saving…":saveError?"Save failed — retry":isDirty?"Unsaved changes":(lastSavedAt?"Saved "+timeAgo(lastSavedAt):"")}</span>}
+      <button className="btn-red btn-sm" onClick={()=>saveDraft()} disabled={savingDraft||!hasContent}>{savingDraft?<span className="spinner"/>:"Save progress"}</button>
+      <span className="top-email">{user.email}</span>
       <button className="btn-dark btn-sm" onClick={handleLogout}>Logout</button>
     </div>
+    <div className="shell">
+    <aside className={"side"+(navOpen?" open":"")}>
+      <button className="side-new" onClick={handleStartFresh}>+ New OM</button>
+      {[["In progress","in_progress"],["Completed","completed"]].map(([label,st])=>{const rows=omList.filter(o=>o.status===st);return <div key={st} className="side-sec">
+        <div className="side-h">{label}<span>{rows.length}</span></div>
+        {rows.length===0&&<div className="side-empty">{omListLoading?"Loading…":(st==="in_progress"?"No drafts yet — start one and hit Save progress.":"Completed OMs show up here.")}</div>}
+        {rows.map(o=><div key={o.id} className={"side-item"+(o.id===omId?" active":"")} onClick={()=>openOM(o)}>
+          {o.thumb_url?<img src={o.thumb_url} className="side-thumb" loading="lazy"/>:<div className="side-thumb empty"/>}
+          <div className="side-txt">
+            <div className="side-title">{o.title||"Untitled OM"}</div>
+            <div className="side-meta">{st==="completed"?("Published "+timeAgo(o.completed_at)+(o.pdf_file_id?" · PDF in deal room":" · PPTX in deal room")):(nameFromEmail(o.updated_by||o.created_by)+" · "+timeAgo(o.updated_at))}</div>
+          </div>
+          {st==="in_progress"&&<button className="side-del" title="Delete draft" onClick={e=>{e.stopPropagation();deleteOM(o)}}>×</button>}
+        </div>)}
+      </div>})}
+    </aside>
+    {navOpen&&<div className="side-scrim" onClick={()=>setNavOpen(false)}/>}
+    <main className="main">
     <div className="container">
+      {omRow&&<div className={"om-banner"+(omRow.status==="completed"?" done":"")}>{omRow.status==="completed"?<>Completed {new Date(omRow.completed_at).toLocaleDateString()} by {nameFromEmail(omRow.completed_by)} — edits here won't reach the CRM until you republish on Step 7.</>:<>Draft{lastSavedAt?" · saved "+timeAgo(lastSavedAt):""}{importedLegacyId?" · linked to "+(((crmListings.find(l=>l.legacy_id===importedLegacyId)||{}).name)||importedLegacyId):" · not linked to a CRM listing yet"}</>}</div>}
       <div className="step-nav">{steps.map((s,i)=><div key={i} className={"step-btn"+(step===i+1?" active":step>i+1?" done":"")} onClick={()=>setStep(i+1)}>{i+1}. {s}</div>)}</div>
 
       {/* STEP 1 — PROPERTY */}
@@ -1415,17 +1594,30 @@ function App(){
           <p className="hint" style={{marginBottom:4}}>{cityLine} · {unitDescription}</p>
           <p className="hint" style={{marginBottom:18}}>{agents.slice(0,3).map(a=>a.name).join(", ")||"no agents"} · {gridPhotos.length} photos · NOI {money(fin.cur.noi)} · {pctF(fin.inPlaceCap)} in-place cap</p>
           <p className="hint" style={{marginBottom:20}}>Pages: Cover, Property & Team, {includeAerial?"Aerial, ":""}Offering & Summary, {includeFloodMap?"Flood Map, ":""}{Math.ceil(gridPhotos.length/4)} photo page{Math.ceil(gridPhotos.length/4)===1?"":"s"}, Financial Overview, Current Rent Roll, Operating Expenses, Proforma Rent Roll, {includeCashFlow?"Cash Flow, ":""}Contact Details · 11 × 8.5 in</p>
-          <button className="btn-green" style={{fontSize:16,padding:"14px 40px"}} onClick={handleGenerate} disabled={generating}>{generating?<><span className="spinner" style={{marginRight:8}}/>Building PPTX…</>:"⬇ Download OM (.pptx)"}</button>
-          {genErrors&&genErrors.errors.length>0&&<div className="err-box"><b>Fix these before downloading:</b><ul>{genErrors.errors.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
+          <div className="link-box">
+            {importedLegacyId?<p className="hint" style={{margin:0}}>Files under CRM listing: <b style={{color:"var(--text)"}}>{((crmListings.find(l=>l.legacy_id===importedLegacyId)||{}).name)||importedLegacyId}</b> <a href="#" onClick={e=>{e.preventDefault();setSelectedListingId("");setImportedLegacyId("")}}>change</a></p>
+              :<><p className="hint" style={{margin:"0 0 6px"}}><b style={{color:"var(--text)"}}>Link this OM to its CRM listing</b> so it files under the right property (doesn't change anything you've entered):</p><SearchableListingInput listings={crmListings} value={""} onChange={linkListing} loading={loadingListings}/></>}
+          </div>
+          <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+            <button className="btn-green" style={{fontSize:16,padding:"14px 32px"}} onClick={publishOM} disabled={publishing||generating}>{publishing?<><span className="spinner" style={{marginRight:8}}/>Publishing…</>:(omRow&&omRow.status==="completed"?"↻ Republish to CRM":"✓ Complete & publish to CRM")}</button>
+            <button className="btn-dark" style={{fontSize:14,padding:"14px 22px"}} onClick={handleGenerate} disabled={generating||publishing}>{generating?<><span className="spinner" style={{marginRight:8}}/>Building…</>:"⬇ Download only"}</button>
+          </div>
+          <p className="hint" style={{marginTop:10}}>Complete & publish saves the PowerPoint to the CRM file share under this property and into its deal room, marks the OM completed, and downloads a copy for you.</p>
+          {omRow&&omRow.status==="completed"&&<div className="result-box" style={{textAlign:"left",marginTop:14}}>
+            <b>Published {new Date(omRow.completed_at).toLocaleString()} by {nameFromEmail(omRow.completed_by)}.</b> The PowerPoint is in the CRM file share{omRow.pdf_file_id?"; the final PDF is what buyers see in the deal room.":" and the deal room."}
+            <div style={{marginTop:10,display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
+              <label className="btn-dark btn-sm file-btn">{pdfUploading?<><span className="spinner" style={{marginRight:6}}/>Uploading…</>:(omRow.pdf_file_id?"Replace final PDF":"Add final PDF")}<input type="file" accept="application/pdf,.pdf" disabled={pdfUploading} onChange={e=>{const f=e.target.files&&e.target.files[0];e.target.value="";uploadFinalPdf(f)}}/></label>
+              <span className="hint">Export the PDF from PowerPoint, add it here, and it replaces the PowerPoint in the deal room.</span>
+            </div>
+          </div>}
+          {genErrors&&genErrors.errors.length>0&&<div className="err-box"><b>Fix these first:</b><ul>{genErrors.errors.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
           {genErrors&&genErrors.warnings.length>0&&<div className="warn-box" style={{textAlign:"left"}}><b>Heads up:</b><ul>{genErrors.warnings.map((x,i)=><li key={i}>{x}</li>)}</ul></div>}
           <p className="hint" style={{marginTop:12}}>Editable in PowerPoint, Google Slides or Keynote. Uses the Poppins font (free from Google Fonts) — install it on any computer that edits the file.</p>
-          <div style={{marginTop:18,borderTop:"1px solid var(--border)",paddingTop:16}}>
-            <button className="btn-dark" onClick={saveToCRM} disabled={saving||!selectedListingId}>{saving?<><span className="spinner" style={{marginRight:6}}/>Saving to CRM…</>:"Save this OM to CRM"}</button>
-            <p className="hint" style={{marginTop:8}}>{selectedListingId?"Stores text, financials and photos on the listing so re-importing rebuilds this OM.":"Import a CRM listing first to enable saving."}</p>
-          </div>
         </div>
         {nav(6,null)}
       </div>}
+    </div>
+    </main>
     </div>
     {toast&&<div className="toast">{toast}</div>}
   </>
