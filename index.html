@@ -697,9 +697,12 @@ function fileToText(file){return new Promise((res,rej)=>{const r=new FileReader(
 function fileToArrayBuffer(file){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsArrayBuffer(file)})}
 // Saved photo URL -> data URL. If the fetch fails or isn't an image, keep the URL itself
 // (cropToBox can still load it), so a hiccup never turns a photo into garbage.
+// om-photos is a PRIVATE bucket: saved photos are read with the signed-in session, not a public link.
+function isSbStorage(u){return String(u||"").indexOf(SB_URL+"/storage/v1/object/")===0}
+function storageAuthUrl(u){return String(u).replace("/storage/v1/object/public/","/storage/v1/object/authenticated/")}
 async function urlToDataURL(url){
   if(!url)return null;if(/^data:/.test(url))return url;
-  try{const r=await fetch(url);const b=await r.blob();if(!r.ok||!/^image\//.test(b.type))return url;return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});}catch(e){return url;}
+  try{const sb=isSbStorage(url);const r=await fetch(sb?storageAuthUrl(url):url,sb?{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+(localStorage.getItem("sb_token")||SB_KEY)}}:{});const b=await r.blob();if(!r.ok||!/^image\//.test(b.type))return url;return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b)});}catch(e){return url;}
 }
 function loadImg(src){return new Promise((res,rej)=>{const im=new Image();if(/^https?:/.test(src))im.crossOrigin="anonymous";im.onload=()=>res(im);im.onerror=()=>rej(new Error("Couldn't read an image (HEIC photos must be converted to JPG first)"));im.src=src})}
 // Cover-crop an image to a box aspect (inches) and re-encode as JPEG. Keeps photos undistorted
@@ -721,7 +724,8 @@ async function crmFileToDataURL(storage_path){
   const token=localStorage.getItem("sb_token");
   const r=await fetch(SB_URL+"/storage/v1/object/crm-files/"+storage_path,{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token}});
   if(!r.ok)throw new Error("CRM photo download failed ("+r.status+")");
-  const b=await r.blob();return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
+  const b=await r.blob();const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
+  return await shrinkImage(d);
 }
 // Call a Supabase Edge Function with the signed-in (2FA) session.
 async function sbInvoke(fn,body){
@@ -825,6 +829,7 @@ function App(){
   const[pdfUploading,setPdfUploading]=useState(false);
   const[myName,setMyName]=useState("");
   const[navOpen,setNavOpen]=useState(false);
+  const[thumbUrls,setThumbUrls]=useState({});
   const photoUrlMap=useRef(new Map());            // data URL -> uploaded om-photos URL
   const fpResetPending=useRef(false);
   const savingRef=useRef(false);
@@ -962,7 +967,11 @@ function App(){
         grid:gridPhotos.map(urlFor),agents:Object.fromEntries(Object.entries(agentPhotos).filter(([k,v])=>v).map(([k,v])=>[k,urlFor(v)]))}};
   }
   async function loadMyName(){try{const em=(user&&user.email)||"";const r=await sbFetch("/rest/v1/profiles?select=name&email=eq."+encodeURIComponent(em));setMyName((r&&r[0]&&r[0].name)||nameFromEmail(em))}catch(e){setMyName(nameFromEmail(user&&user.email))}}
-  async function fetchOMs(){setOmListLoading(true);let rows=[];try{rows=await sbFetch("/rest/v1/oms?select=id,title,address,status,listing_id,listing_legacy_id,thumb_url,updated_at,updated_by,created_by,completed_at,completed_by,pptx_file_id,pdf_file_id&deleted_at=is.null&order=updated_at.desc&limit=300")||[];setOmList(rows)}catch(e){console.log("Could not load OMs:",e.message)}setOmListLoading(false);return rows}
+  async function fetchOMs(){setOmListLoading(true);let rows=[];try{rows=await sbFetch("/rest/v1/oms?select=id,title,address,status,listing_id,listing_legacy_id,thumb_url,updated_at,updated_by,created_by,completed_at,completed_by,pptx_file_id,pdf_file_id&deleted_at=is.null&order=updated_at.desc&limit=300")||[];setOmList(rows);signThumbs(rows)}catch(e){console.log("Could not load OMs:",e.message)}setOmListLoading(false);return rows}
+  // Sidebar thumbnails live in the private om-photos bucket: swap in 1-hour signed links.
+  async function signThumbs(rows){try{const mark="/om-photos/";const paths=Array.from(new Set(rows.map(r=>r.thumb_url).filter(u=>u&&u.indexOf(mark)>0).map(u=>decodeURIComponent(u.split(mark)[1].split("?")[0]))));if(!paths.length)return;
+    const signed=await sbFetch("/storage/v1/object/sign/om-photos",{method:"POST",body:JSON.stringify({expiresIn:3600,paths})});const map={};(signed||[]).forEach((x,i)=>{const su=x&&(x.signedURL||x.signedUrl);if(su)map[x.path||paths[i]]=String(su).startsWith("http")?su:SB_URL+"/storage/v1"+su});
+    setThumbUrls(prev=>Object.assign({},prev,map))}catch(e){console.log("thumbs",e.message)}}
   async function uploadPhotos(id,mapOverride){
     const all=[coverPhoto,heroPhoto,dividerPhoto,mapOverride||mapPhoto,aerialPhoto,floodMapPhoto].concat(gridPhotos,Object.values(agentPhotos)).filter(x=>x&&/^data:/.test(x)&&!photoUrlMap.current.has(x));
     const uniq=Array.from(new Set(all));
@@ -1365,7 +1374,7 @@ function App(){
         <div className="side-h">{label}<span>{rows.length}</span></div>
         {rows.length===0&&<div className="side-empty">{omListLoading?"Loading…":(st==="in_progress"?"No drafts yet — start one and hit Save progress.":"Completed OMs show up here.")}</div>}
         {rows.map(o=><div key={o.id} className={"side-item"+(o.id===omId?" active":"")} onClick={()=>openOM(o)}>
-          {o.thumb_url?<img src={o.thumb_url} className="side-thumb" loading="lazy"/>:<div className="side-thumb empty"/>}
+          {(()=>{const k=o.thumb_url&&o.thumb_url.indexOf("/om-photos/")>0?decodeURIComponent(o.thumb_url.split("/om-photos/")[1].split("?")[0]):null;const src=k&&thumbUrls[k];return src?<img src={src} className="side-thumb" loading="lazy" onError={e=>{e.currentTarget.style.visibility="hidden"}}/>:<div className="side-thumb empty"/>})()}
           <div className="side-txt">
             <div className="side-title">{o.title||"Untitled OM"}</div>
             <div className="side-meta">{st==="completed"?("Published "+timeAgo(o.completed_at)+(o.pdf_file_id?" · PDF in deal room":" · PPTX in deal room")):(nameFromEmail(o.updated_by||o.created_by)+" · "+timeAgo(o.updated_at))}</div>
