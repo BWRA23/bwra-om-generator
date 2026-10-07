@@ -223,7 +223,8 @@ function omTypeLabel(t){var p=omParseType(t);if(p.beds===null||p.baths===null)re
 // FINANCIAL MODEL — every number on pages 3, 10, 11, 12 comes from here so they always tie.
 // ════════════════════════════════════════════════════════
 function omCalc(inp){
-  var rr=(inp.rentRoll||[]).filter(function(u){return u&&(String(u.unit||"").trim()||omHas(u.currentRent)||omHas(u.modeledRent)||omHas(u.proformaRent)||String(u.type||"").trim())});
+  // A unit counts once it has a rent or is marked vacant (the blank starter row does not).
+  var rr=(inp.rentRoll||[]).filter(function(u){return u&&(omNum(u.currentRent)>0||omNum(u.modeledRent)>0||omNum(u.proformaRent)>0||/vac/i.test(String(u.status||"")))});
   var units=rr.length||omNum(inp.units);
   var gba=omNum(inp.gbaSf), price=omNum(inp.price);
   var rows=rr.map(function(u){
@@ -255,13 +256,13 @@ function omCalc(inp){
   var layouts=Object.keys(types).sort(function(a,b){var pa=omParseType(a),pb=omParseType(b);return (pb.beds||0)-(pa.beds||0)||(pb.baths||0)-(pa.baths||0)}).map(function(k){var p=omParseType(k);var lab=(p.beds===null||p.baths===null)?k:(p.beds===0?"studio":p.beds+" bd")+" "+p.baths+" ba";return{count:types[k],type:k,label:"("+types[k]+") "+lab,beds:p.beds,baths:p.baths}});
   function find(re){var l=cur.lines.filter(function(x){return re.test(x.label)})[0];return l?l.amount:null}
   return{
-    rows:rows,units:units,occupied:occupied,occupancy:units?occupied/units:NaN,gba:gba,price:price,siteSf:omNum(inp.siteSf),
+    rows:rows,units:units,occupied:occupied,occupancy:rows.length?occupied/rows.length:NaN,gba:gba,price:price,siteSf:omNum(inp.siteSf),
     inPlaceMo:inPlaceMo,schedMo:schedMo,pfMo:pfMo,upsideMo:pfMo-inPlaceMo,avgSched:units?schedMo/units:0,
     vacPct:vacPct,cur:cur,pf:pf,layouts:layouts,
-    inPlaceCap:price?cur.noi/price:NaN,proformaCap:price?pf.noi/price:NaN,
+    inPlaceCap:(price&&schedMo)?cur.noi/price:NaN,proformaCap:(price&&pfMo)?pf.noi/price:NaN,
     pricePerSf:(price&&gba)?price/gba:NaN,pricePerUnit:(price&&units)?price/units:NaN,
     grmProforma:(price&&pfMo)?price/(pfMo*12):NaN,grmInPlace:(price&&inPlaceMo)?price/(inPlaceMo*12):NaN,
-    opexPerUnit:units?cur.total/units:NaN,
+    opexPerUnit:(units&&schedMo)?cur.total/units:NaN,
     insPerSf:(gba&&find(/insur/i)!==null)?find(/insur/i)/gba:NaN,
     rmPerSf:(gba&&find(/repair|maint/i)!==null)?find(/repair|maint/i)/gba:NaN
   };
@@ -560,6 +561,7 @@ function validateOM(d,f){
   if(!(d.img.gridPages||[]).length)e.push("Add property photos for the photo pages (Step 3).");
   var ow=String(d.offeringText||"").trim().split(/\s+/).filter(Boolean).length;if(!ow)e.push("Offering description is empty (Step 4).");else if(ow<120)w.push("The offering text is "+ow+" words; about 170\u2013230 fills the panel like the reference.");
   if(!f.rows.length)e.push("Rent roll is empty (Step 6).");
+  ((d.finInput||{}).rentRoll||[]).forEach(function(u){if(u&&(String(u.unit||"").trim()||String(u.type||"").trim())&&!(omNum(u.currentRent)>0||omNum(u.modeledRent)>0||/vac/i.test(String(u.status||""))))e.push("Unit "+(u.unit||"?")+" has no rent (Step 6) \u2014 enter it or remove the row.")});
   f.rows.forEach(function(r){if(!r.modeled)e.push("Unit "+(r.unit||"?")+" has no rent (Step 6).");var pt=omParseType(r.type);if(pt.beds===null||pt.baths===null)w.push("Unit "+(r.unit||"?")+" type “"+(r.rawType||"")+"” isn’t in “2 BD / 1 BA” form.")});
   if(!f.cur.lines.length)e.push("Add operating expenses (Step 6).");
   if(d.includeAerial&&!d.img.aerial)e.push("Aerial slide is on but no aerial image was added (Step 3).");
@@ -1160,7 +1162,7 @@ function App(){
           <div className="field"><label>Asking price ($)</label><Num value={askingPrice} onChange={setAskingPrice} placeholder="899000"/></div>
           <div className="field"><label>GBA (sf)</label><Num value={gbaSf} onChange={setGbaSf} placeholder="4460"/></div>
           <div className="field"><label>Site size (sf)</label><Num value={siteSf} onChange={setSiteSf} placeholder="3360"/></div>
-          <div className="field"><label>Unit count</label><input value={fin.rows.length?String(fin.rows.length):unitsHint} disabled title="Counted from the rent roll on Step 6"/><div className="hint">{fin.rows.length?"From the rent roll":"Fills from the rent roll"}</div></div>
+          <div className="field"><label>Unit count</label><input value={fin.rows.length?String(fin.rows.length):unitsHint} disabled title="Counted from the rent roll on Step 6"/><div className="hint">{fin.rows.length?"From the rent roll":(unitsHint?"From the CRM until the rent roll is filled":"Fills from the rent roll")}</div></div>
         </div>
         <div className="calc-strip">
           <Stat label="Price per SF" value={isFinite(fin.pricePerSf)?omMoney(fin.pricePerSf,2)+"/sf":"—"}/>
