@@ -238,6 +238,7 @@ function omMoney(n,dec){dec=dec||0;var v=Math.abs(n);var s="$"+v.toLocaleString(
 function omMoneyNeg(n,dec){return omMoney(-Math.abs(n),dec)}            // expense style: always in parentheses (zero shows $0)
 function omMoneyCell(n,dec,neg){if(Math.round(Math.abs(n)*100)===0)return dec?"$0.00":"$0";return neg?omMoneyNeg(n,dec):omMoney(n,dec)}
 function omPct(x,dec){if(!isFinite(x))return "—";return (x*100).toFixed(dec===undefined?1:dec)+"%"}
+function omPctNum(x){var v=Math.round(x*1000)/10;return (v%1===0?v.toFixed(0):v.toFixed(1))+"%"}
 function omInt(n){return Math.round(n).toLocaleString("en-US")}
 function omPhone(p){var d=String(p||"").replace(/\D/g,"");if(d.length===11&&d[0]==="1")d=d.slice(1);return d.length===10?d.slice(0,3)+"-"+d.slice(3,6)+"-"+d.slice(6):String(p||"")}
 function omWordNum(n){var w=["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve"];return n>=0&&n<w.length?w[n]:String(n)}
@@ -455,12 +456,13 @@ function omHead(text,align){return omCell(text,{bold:true,color:OMC.white,fill:{
 function omTot(text,align){return omCell(text,{bold:true,color:OMC.white,fill:{color:OMC.maroon},fontSize:13,align:align||"left",border:[{type:"none"},{type:"none"},{type:"none"},{type:"none"}]})}
 function omSummaryLine(s,parts,y,pt){var runs=[];parts.forEach(function(pr,i){runs.push({text:pr[0]+" ",options:{}});runs.push({text:pr[1],options:{bold:true}});if(i<parts.length-1)runs.push({text:"      ",options:{}})});
   s.addText(runs,{x:0.3,y:y,w:10.45,h:0.3,fontFace:OM_FIN_FONT,fontSize:pt||11,color:OMC.ink,valign:"top",margin:0})}
+function omChunkEven(arr,max){if(arr.length<=max)return[arr];var pages=Math.ceil(arr.length/max),size=Math.ceil(arr.length/pages);return omChunk(arr,size)}
 function omChunk(arr,n){var out=[];for(var i=0;i<arr.length;i+=n)out.push(arr.slice(i,i+n));return out.length?out:[[]]}
 
 // PAGE 10 — Current Rent Roll (paginates past ~10 units)
 function omCurrentRentRollSlides(p,d,f){
   var name=(d.property&&d.property.street)||"";
-  var per=f.rows.length<=10?10:16;var pages=omChunk(f.rows,per);
+  var per=f.rows.length<=10?10:16;var pages=f.rows.length<=10?[f.rows]:(f.rows.length<=12?[f.rows]:[f.rows.slice(0,12)].concat(omChunkEven(f.rows.slice(12),16)));
   pages.forEach(function(chunk,pi){
     var s=p.addSlide();s.background={color:OMC.white};var last=pi===pages.length-1;
     omFinTitle(s,"CURRENT RENT ROLL"+(pages.length>1?" ("+(pi+1)+" of "+pages.length+")":""),"Unit Mix & In-Place Rents — "+name,0.42);
@@ -474,14 +476,14 @@ function omCurrentRentRollSlides(p,d,f){
     var heights=[0.38].concat(chunk.map(function(){return rowH})).concat(last?[0.48]:[]);
     s.addTable(rows,{x:0.3,y:ty,w:10.4,colW:[1.25,2.25,1.9,2.63,2.37],rowH:heights});
     if(last){var by=ty+heights.reduce(function(a,b){return a+b},0)+0.2;
-      omSummaryLine(s,[["In-Place Rent",omMoney(f.inPlaceMo)+"/mo ("+omMoney(f.inPlaceMo*12)+"/yr)"],["Scheduled (Gross Potential) Rent",omMoney(f.schedMo)+"/mo ("+omMoney(f.schedMo*12)+"/yr)"],["Average Rent (Scheduled)",omMoney(f.avgSched)+"/unit"]],by,(omMoney(f.schedMo*12)+omMoney(f.inPlaceMo*12)).length>18?10:11.5)}
+      omSummaryLine(s,[["In-Place Rent",omMoney(f.inPlaceMo)+"/mo ("+omMoney(f.inPlaceMo*12)+"/yr)"],["Scheduled (Gross Potential) Rent",omMoney(f.schedMo)+"/mo ("+omMoney(f.schedMo*12)+"/yr)"],["Average Rent (Scheduled)",omMoney(f.avgSched)+"/unit"]],by,(omMoney(f.schedMo*12)+omMoney(f.inPlaceMo*12)).length>15?9.5:11.5)}
   });
 }
 
 // PAGE 11 — Operating Expenses
 function omOpexSlide(p,d,f){
   var s=p.addSlide();s.background={color:OMC.white};var c=f.cur;var name=(d.property&&d.property.street)||"";
-  omFinTitle(s,"OPERATING EXPENSES","Full Rent Roll · "+(f.vacPct*100).toFixed(0)+"% Vacancy Factor · "+name,0.28);
+  omFinTitle(s,"OPERATING EXPENSES","Full Rent Roll · "+omPctNum(f.vacPct)+" Vacancy Factor · "+name,0.28);
   var n=c.lines.length;var rowH=n<=6?0.345:Math.max(0.26,0.345-(n-6)*0.02);var fs=n<=6?10.5:9.5;
   var u=f.units||1,g=f.gba||0;
   function per(v,neg){return omMoneyCell(v/u,0,neg)} function psf(v,neg){return g?omMoneyCell(v/g,2,neg):"—"}
@@ -501,7 +503,7 @@ function omOpexSlide(p,d,f){
   s.addTable(rows,{x:0.27,y:1.07,w:10.47,colW:[4.73,2.24,1.24,1.23,1.03],rowH:hs});
   var y=1.07+hs.reduce(function(a,b){return a+b},0)+0.1;
   omSummaryLine(s,[["Effective Gross Income",omMoney(c.egi)],["Total Operating Expenses",omMoney(c.total)],["Net Operating Income",omMoney(c.noi)],["Expense Ratio",omPct(c.ratio)]],y,10.5);
-  var prof=d.expenseProfile||("Full rent roll, "+(f.vacPct*100).toFixed(0)+"% vacancy factor · "+f.units+" units"+(g?" · "+omInt(g)+" SF":""));
+  var prof=d.expenseProfile||("Full rent roll, "+omPctNum(f.vacPct)+" vacancy factor · "+f.units+" units"+(g?" · "+omInt(g)+" SF":""));
   s.addText([{text:"EXPENSE PROFILE",options:{bold:true}},{text:" — "+prof,options:{color:OMC.gray}}],{x:0.3,y:y+0.23,w:10.45,h:0.25,fontFace:OM_FIN_FONT,fontSize:9.5,color:OMC.ink,valign:"top",margin:0});
   var cards=[["OPEX PER UNIT",isFinite(f.opexPerUnit)?omMoney(f.opexPerUnit):"—"],["INSURANCE PER SF",isFinite(f.insPerSf)?omMoney(f.insPerSf,2):"—"],["R&M PER SF",isFinite(f.rmPerSf)?omMoney(f.rmPerSf,2):"—"],["EXPENSE RATIO",omPct(c.ratio)],["NET OPERATING INCOME",omMoney(c.noi)]];
   var cy=Math.max(y+0.58,6.44),cw=1.96,gap=0.165;
@@ -513,23 +515,18 @@ function omOpexSlide(p,d,f){
   if(d.opexFootnote)s.addText(d.opexFootnote,{x:0.27,y:cy+0.95,w:10.45,h:0.3,fontFace:OM_FIN_FONT,fontSize:8.5,color:OMC.gray,valign:"top",margin:0});
 }
 
-// PAGE 12 — Proforma Rent Roll + Market Rent Support
+// PAGE 12 — Proforma Rent Roll + Market Rent Support (paginates past 8 units; market table goes where it fits)
 function omProformaSlide(p,d,f){
-  var s=p.addSlide();s.background={color:OMC.white};var name=(d.property&&d.property.street)||"";
-  omFinTitle(s,"PROFORMA RENT ROLL","Market Rent Potential & Embedded Upside — "+name,0.42);
-  var n=f.rows.length;var rowH=n<=8?0.373:Math.max(0.22,3.0/n);var fs=n<=8?11:Math.max(8.5,11-(n-8)*0.15);
-  var rows=[[omHead("UNIT"),omHead("UNIT TYPE"),omHead("STATUS"),omHead("IN-PLACE RENT","right"),omHead("PROFORMA RENT","right"),omHead("MONTHLY UPSIDE","right")]];
-  f.rows.forEach(function(r,i){var st={fontSize:fs,fill:{color:i%2===1?OMC.stripe:OMC.white}};
-    rows.push([omCell(r.unit,st),omCell(r.type,st),omCell(r.status,st),omCell(omMoney(r.actual),Object.assign({align:"right"},st)),omCell(omMoney(r.proforma),Object.assign({align:"right"},st)),omCell(omMoney(r.upside),Object.assign({align:"right"},st))])});
-  var tg=omTot("TOTAL GROSS POTENTIAL RENT");tg.options.colspan=3;rows.push([tg,omTot(omMoney(f.inPlaceMo),"right"),omTot(omMoney(f.pfMo),"right"),omTot(omMoney(f.upsideMo),"right")]);
-  var hs=[0.36].concat(f.rows.map(function(){return rowH})).concat([0.43]);
-  s.addTable(rows,{x:0.3,y:1.39,w:10.37,colW:[0.97,1.68,1.7,1.69,2.14,2.19],rowH:hs});
-  var y=1.39+hs.reduce(function(a,b){return a+b},0)+0.2;
-  var upPct=f.inPlaceMo?f.upsideMo/f.inPlaceMo:NaN;
-  omSummaryLine(s,[["Proforma GPR",omMoney(f.pfMo)+"/mo ("+omMoney(f.pfMo*12)+"/yr)"],["In-Place GPR",omMoney(f.inPlaceMo)+"/mo ("+omMoney(f.inPlaceMo*12)+"/yr)"],["Total Upside",omMoney(f.upsideMo)+"/mo ("+omMoney(f.upsideMo*12)+"/yr"+(isFinite(upPct)?", +"+(upPct*100).toFixed(1)+"%":"")+")"],["Proforma GRM",isFinite(f.grmProforma)?f.grmProforma.toFixed(2)+"x":"—"]],y,10.5);
+  var name=(d.property&&d.property.street)||"";
   var m=d.market||{};var mrows=(m.rows||[]).filter(function(r){return r&&String(r.unitType||"").trim()});
-  if(mrows.length){
-    var dy=y+0.42;s.addShape(p.shapes.LINE,{x:0.3,y:dy,w:10.37,h:0,line:{color:"000000",width:1.5}});
+  var n=f.rows.length;var big=n>8;var rowH=big?0.3:0.373;var fs=big?10:11;
+  var pages=big?omChunkEven(f.rows,14):[f.rows];
+  var lastRows=pages[pages.length-1].length;var lastEnd=1.39+0.36+lastRows*rowH+0.43+0.2+0.3;
+  var marketOwn=!!(mrows.length&&(lastEnd+0.95+mrows.length*0.373>7.95));
+  var total=pages.length+(marketOwn?1:0);
+  function footer(s){s.addText(OM_FIN_FOOTER,{x:0.15,y:8.08,w:10.7,h:0.25,fontFace:OM_FONT,fontSize:9.8,color:OMC.ink,align:"center",valign:"top",margin:0})}
+  function market(s,dy){
+    s.addShape(p.shapes.LINE,{x:0.3,y:dy,w:10.37,h:0,line:{color:"000000",width:1.5}});
     s.addText([{text:"MARKET RENT SUPPORT",options:{bold:true,color:OMC.ink}},{text:m.source?"     "+m.source:"",options:{color:OMC.gray}}],{x:0.3,y:dy+0.16,w:10.37,h:0.25,fontFace:OM_FIN_FONT,fontSize:10,valign:"top",margin:0});
     var mr=[[omHead("UNIT TYPE"),omHead("SAMPLE","right"),omHead("25TH PERCENTILE","right"),omHead("MEDIAN","right"),omHead("AVERAGE","right"),omHead("75TH PERCENTILE","right"),omHead("PROFORMA APPLIED","right")]];
     function mv(x){return omHas(x)?omMoney(omNum(x)):"—"}
@@ -537,7 +534,21 @@ function omProformaSlide(p,d,f){
       mr.push([omCell(r.unitType,st),omCell(omHas(r.sample)?String(omNum(r.sample)):"—",Object.assign({align:"right"},st)),omCell(mv(r.p25),Object.assign({align:"right"},st)),omCell(mv(r.median),Object.assign({align:"right"},st)),omCell(mv(r.avg),Object.assign({align:"right"},st)),omCell(mv(r.p75),Object.assign({align:"right"},st)),omCell(mv(r.applied),{align:"right",bold:true,color:OMC.white,fill:{color:OMC.maroon},fontSize:11,border:[{type:"none"},{type:"none"},{pt:0.75,color:OMC.white},{type:"none"}]})])});
     s.addTable(mr,{x:0.3,y:dy+0.46,w:10.37,colW:[1.45,1.05,1.85,0.98,1.11,1.86,2.07],rowH:[0.36].concat(mrows.map(function(){return 0.373}))});
   }
-  s.addText(OM_FIN_FOOTER,{x:0.15,y:8.08,w:10.7,h:0.25,fontFace:OM_FONT,fontSize:9.8,color:OMC.ink,align:"center",valign:"top",margin:0});
+  pages.forEach(function(chunk,pi){
+    var s=p.addSlide();s.background={color:OMC.white};var last=pi===pages.length-1;
+    omFinTitle(s,"PROFORMA RENT ROLL"+(total>1?" ("+(pi+1)+" of "+total+")":""),"Market Rent Potential & Embedded Upside — "+name,0.42);
+    var rows=[[omHead("UNIT"),omHead("UNIT TYPE"),omHead("STATUS"),omHead("IN-PLACE RENT","right"),omHead("PROFORMA RENT","right"),omHead("MONTHLY UPSIDE","right")]];
+    chunk.forEach(function(r,i){var st={fontSize:fs,fill:{color:i%2===1?OMC.stripe:OMC.white}};
+      rows.push([omCell(r.unit,st),omCell(r.type,st),omCell(r.status,st),omCell(omMoney(r.actual),Object.assign({align:"right"},st)),omCell(omMoney(r.proforma),Object.assign({align:"right"},st)),omCell(omMoney(r.upside),Object.assign({align:"right"},st))])});
+    if(last){var tg=omTot("TOTAL GROSS POTENTIAL RENT");tg.options.colspan=3;rows.push([tg,omTot(omMoney(f.inPlaceMo),"right"),omTot(omMoney(f.pfMo),"right"),omTot(omMoney(f.upsideMo),"right")])}
+    var hs=[0.36].concat(chunk.map(function(){return rowH})).concat(last?[0.43]:[]);
+    s.addTable(rows,{x:0.3,y:1.39,w:10.37,colW:[0.97,1.68,1.7,1.69,2.14,2.19],rowH:hs});
+    if(last){var y=1.39+hs.reduce(function(a,b){return a+b},0)+0.2;var upPct=f.inPlaceMo?f.upsideMo/f.inPlaceMo:NaN;
+      omSummaryLine(s,[["Proforma GPR",omMoney(f.pfMo)+"/mo ("+omMoney(f.pfMo*12)+"/yr)"],["In-Place GPR",omMoney(f.inPlaceMo)+"/mo ("+omMoney(f.inPlaceMo*12)+"/yr)"],["Total Upside",omMoney(f.upsideMo)+"/mo ("+omMoney(f.upsideMo*12)+"/yr"+(isFinite(upPct)?", +"+(upPct*100).toFixed(1)+"%":"")+")"],["Proforma GRM",isFinite(f.grmProforma)?f.grmProforma.toFixed(2)+"x":"—"]],y,(omMoney(f.pfMo*12)+omMoney(f.inPlaceMo*12)).length>18?9.5:10.5);
+      if(mrows.length&&!marketOwn)market(s,y+0.42);}
+    footer(s);
+  });
+  if(marketOwn){var s2=p.addSlide();s2.background={color:OMC.white};omFinTitle(s2,"PROFORMA RENT ROLL ("+total+" of "+total+")","Market Rent Support — "+name,0.42);market(s2,1.39);footer(s2)}
 }
 
 // Optional — Cash Flow Analysis (only when financing inputs exist)
@@ -587,7 +598,7 @@ function validateOM(d,f){
   if(!(d.img.gridPages||[]).length)e.push("Add property photos for the photo pages (Step 3).");
   var ow=String(d.offeringText||"").trim().split(/\s+/).filter(Boolean).length;if(!ow)e.push("Offering description is empty (Step 4).");else if(ow<120)w.push("The offering text is "+ow+" words; about 170\u2013230 fills the panel like the reference.");
   if(!f.rows.length)e.push("Rent roll is empty (Step 6).");
-  ((d.finInput||{}).rentRoll||[]).forEach(function(u){if(u&&(String(u.unit||"").trim()||String(u.type||"").trim())&&!(omNum(u.currentRent)>0||omNum(u.modeledRent)>0||/vac/i.test(String(u.status||""))))e.push("Unit "+(u.unit||"?")+" has no rent (Step 6) \u2014 enter it or remove the row.")});
+  ((d.finInput||{}).rentRoll||[]).forEach(function(u){if(u&&(String(u.unit||"").trim()||String(u.type||"").trim())&&!(omNum(u.currentRent)>0||omNum(u.modeledRent)>0||omNum(u.proformaRent)>0||/vac/i.test(String(u.status||""))))e.push("Unit "+(u.unit||"?")+" has no rent (Step 6) \u2014 enter it or remove the row.")});
   f.rows.forEach(function(r){if(!r.modeled)e.push("Unit "+(r.unit||"?")+" has no rent (Step 6).");var pt=omParseType(r.type);if(pt.beds===null||pt.baths===null)w.push("Unit "+(r.unit||"?")+" type “"+(r.rawType||"")+"” isn’t in “2 BD / 1 BA” form.")});
   if(!f.cur.lines.length)e.push("Add operating expenses (Step 6).");
   if(d.includeAerial&&!d.img.aerial)e.push("Aerial slide is on but no aerial image was added (Step 3).");
@@ -817,6 +828,11 @@ function App(){
   const photoUrlMap=useRef(new Map());            // data URL -> uploaded om-photos URL
   const fpResetPending=useRef(false);
   const savingRef=useRef(false);
+  const sessionRef=useRef(0);                     // bumps whenever the form switches to another OM
+  const loadingRef=useRef(false);
+  const routedRef=useRef(false);
+  const[loadingOM,setLoadingOM]=useState(false);
+  const[conflict,setConflict]=useState(null);
 
   // Property
   const[propertyName,setPropertyName]=useState("");
@@ -902,7 +918,7 @@ function App(){
     setUser(JSON.parse(localStorage.getItem("sb_user")));
   })()},[]);
   useEffect(()=>{const onExpired=()=>{setUser(null);showToast("Session expired - please sign in again");};window.addEventListener("sb-session-expired",onExpired);return()=>window.removeEventListener("sb-session-expired",onExpired)},[]);
-  useEffect(()=>{if(!user)return;const qs=new URLSearchParams(window.location.search);const urlId=qs.get("id");const omParam=qs.get("om");(async()=>{
+  useEffect(()=>{if(!user)return;if(routedRef.current){fetchOMs();return}routedRef.current=true;const qs=new URLSearchParams(window.location.search);const urlId=qs.get("id");const omParam=qs.get("om");(async()=>{
     loadMyName();const [ls,oms]=await Promise.all([fetchListings(),fetchOMs()]);
     if(omParam){const r=(oms||[]).find(o=>o.id===omParam);if(r){await openOM(r,true);return}}
     if(urlId){const isUuid=/^[0-9a-f]{8}-/i.test(urlId);const lg=isUuid?((ls||[]).find(l=>l.id===urlId)||{}).legacy_id:urlId;
@@ -931,64 +947,86 @@ function App(){
   const isDirty=hasContent&&fingerprint!==lastSavedFp;
   const isDirtyRef=useRef(false);isDirtyRef.current=isDirty;
   const omIdRef=useRef(null);omIdRef.current=omId;
+  const omRowRef=useRef(null);omRowRef.current=omRow;
   useEffect(()=>{if(fpResetPending.current){fpResetPending.current=false;setLastSavedFp(fingerprint)}});
-  useEffect(()=>{if(!user||!isDirty)return;if(!omId&&!street.trim())return;const t=setTimeout(()=>{if(isDirtyRef.current)saveDraft({silent:true})},30000);return()=>clearTimeout(t)},[fingerprint,user,isDirty,omId]);
+  useEffect(()=>{if(!user||!isDirty)return;if(!omId&&!street.trim())return;if(conflict)return;const t=setTimeout(()=>{if(isDirtyRef.current&&!loadingRef.current)saveDraft({silent:true})},30000);return()=>clearTimeout(t)},[fingerprint,user,isDirty,omId,conflict]);
   useEffect(()=>{const h=e=>{if(isDirtyRef.current){e.preventDefault();e.returnValue=""}};window.addEventListener("beforeunload",h);return()=>window.removeEventListener("beforeunload",h)},[]);
 
-  function collectData(urlFor){
+  function collectData(urlFor,mapOverride){
     return{version:2,propertyName,unitsHint,
       property:{street,extraAddresses,city,state:stateAbbr,zip,neighborhood,unitDescription,coverTag,priceLabel,askingPrice,gbaSf,siteSf,yearBuilt,yearRenovated,lotDescription,styleWord},
       selectedAgents,agentEdits,offeringText,aiPrompt,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,
       rentRoll,rentRollDate,rentRollIntro:introEdited?rentRollIntro:"",introEdited,vacancyPct,otherIncome,expenses,expenseProfile,opexFootnote,market,
       includeCashFlow,cashFlow:{items:cfItems,financingTerms:cfTerms},includeAerial,includeFloodMap,showPhotoLabels,pageLabels,mapZoom,
-      photos:{cover:urlFor(coverPhoto),hero:urlFor(heroPhoto),divider:urlFor(dividerPhoto),map:urlFor(mapPhoto),aerial:urlFor(aerialPhoto),flood:urlFor(floodMapPhoto),
+      photos:{cover:urlFor(coverPhoto),hero:urlFor(heroPhoto),divider:urlFor(dividerPhoto),map:urlFor(mapOverride||mapPhoto),aerial:urlFor(aerialPhoto),flood:urlFor(floodMapPhoto),
         grid:gridPhotos.map(urlFor),agents:Object.fromEntries(Object.entries(agentPhotos).filter(([k,v])=>v).map(([k,v])=>[k,urlFor(v)]))}};
   }
   async function loadMyName(){try{const em=(user&&user.email)||"";const r=await sbFetch("/rest/v1/profiles?select=name&email=eq."+encodeURIComponent(em));setMyName((r&&r[0]&&r[0].name)||nameFromEmail(em))}catch(e){setMyName(nameFromEmail(user&&user.email))}}
   async function fetchOMs(){setOmListLoading(true);let rows=[];try{rows=await sbFetch("/rest/v1/oms?select=id,title,address,status,listing_id,listing_legacy_id,thumb_url,updated_at,updated_by,created_by,completed_at,completed_by,pptx_file_id,pdf_file_id&deleted_at=is.null&order=updated_at.desc&limit=300")||[];setOmList(rows)}catch(e){console.log("Could not load OMs:",e.message)}setOmListLoading(false);return rows}
-  async function uploadPhotos(id){
-    const all=[coverPhoto,heroPhoto,dividerPhoto,mapPhoto,aerialPhoto,floodMapPhoto].concat(gridPhotos,Object.values(agentPhotos)).filter(x=>x&&/^data:/.test(x)&&!photoUrlMap.current.has(x));
+  async function uploadPhotos(id,mapOverride){
+    const all=[coverPhoto,heroPhoto,dividerPhoto,mapOverride||mapPhoto,aerialPhoto,floodMapPhoto].concat(gridPhotos,Object.values(agentPhotos)).filter(x=>x&&/^data:/.test(x)&&!photoUrlMap.current.has(x));
     const uniq=Array.from(new Set(all));
     for(let i=0;i<uniq.length;i+=4){await Promise.all(uniq.slice(i,i+4).map(async d=>{const u=await uploadPhoto(d,"oms/"+id+"/"+hashStr(d)+".jpg");photoUrlMap.current.set(d,u)}))}
     return d=>!d?null:(/^https?:/.test(d)?d:(photoUrlMap.current.get(d)||null));
   }
+  async function waitForSave(){for(let k=0;k<300&&savingRef.current;k++)await new Promise(r=>setTimeout(r,150))}
   async function saveDraft(opts){
-    opts=opts||{};if(savingRef.current)return omIdRef.current;
+    opts=opts||{};
+    if(loadingRef.current){if(!opts.silent)showToast("Still loading this OM — try again in a moment");return null}
+    if(savingRef.current){if(!opts.wait)return omIdRef.current;await waitForSave()}
     if(!hasContent){if(!opts.silent)showToast("Add the property address first");return null}
+    const token=sessionRef.current;const live=()=>sessionRef.current===token;
     savingRef.current=true;setSavingDraft(true);setSaveError("");const fpAtStart=fingerprint;
     try{
       let id=omIdRef.current;
       const meta={title:(street.trim()||propertyName.trim()||"Untitled OM"),address:[street.trim(),cityLine].filter(Boolean).join(", "),
         listing_id:(selectedListingId&&/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(selectedListingId))?selectedListingId:null,listing_legacy_id:importedLegacyId||null};
       if(!id){const r=await sbFetch("/rest/v1/oms",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify([Object.assign({},meta,{status:"in_progress",data:{}})])});
-        id=r&&r[0]&&r[0].id;if(!id)throw new Error("Couldn't create the draft");omIdRef.current=id;setOmId(id);setOmRow(r[0]);try{window.history.replaceState(null,"","?om="+id)}catch(e){}}
-      const urlFor=await uploadPhotos(id);
-      const data=collectData(urlFor);
-      const r2=await sbFetch("/rest/v1/oms?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify(Object.assign({},meta,{data,thumb_url:urlFor(coverPhoto)||urlFor(heroPhoto)||null}))});
-      if(r2&&r2[0])setOmRow(r2[0]);
+        id=r&&r[0]&&r[0].id;if(!id)throw new Error("Couldn't create the draft");
+        if(!live())return null;
+        omIdRef.current=id;omRowRef.current=r[0];setOmId(id);setOmRow(r[0]);try{window.history.replaceState(null,"","?om="+id)}catch(e){}}
+      const urlFor=await uploadPhotos(id,opts.mapOverride);
+      if(!live())return null;                       // user switched OMs mid-save: never write this form into another OM
+      const data=collectData(urlFor,opts.mapOverride);
+      const cur=omRowRef.current;const guard=(!opts.force&&cur&&cur.id===id&&cur.updated_at)?"&updated_at=eq."+encodeURIComponent(cur.updated_at):"";
+      const r2=await sbFetch("/rest/v1/oms?id=eq."+id+guard,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify(Object.assign({},meta,{data,thumb_url:urlFor(coverPhoto)||urlFor(heroPhoto)||null}))});
+      if(!r2||!r2.length){
+        let who="someone else",at=null;try{const lt=await sbFetch("/rest/v1/oms?id=eq."+id+"&select=updated_at,updated_by,deleted_at");if(lt&&lt[0]){who=nameFromEmail(lt[0].updated_by)||who;at=lt[0].updated_at;if(lt[0].deleted_at)who+=" (deleted it)"}}catch(e){}
+        if(live()){setConflict({who,at});setSaveError("Changed elsewhere")}
+        if(!opts.silent)showToast(who+" saved this OM after you opened it — nothing was overwritten");
+        return null;
+      }
+      if(!live())return id;
+      omRowRef.current=r2[0];setOmRow(r2[0]);setConflict(null);
       setLastSavedFp(fpAtStart);setLastSavedAt(new Date().toISOString());fetchOMs();
       if(!opts.silent)showToast("Progress saved");
       return id;
-    }catch(e){const m=e.message||String(e);setSaveError(m);if(!opts.silent)showToast("Save failed: "+m.slice(0,120));return null}
+    }catch(e){const m=e.message||String(e);if(live())setSaveError(m);if(!opts.silent)showToast("Save failed: "+m.slice(0,120));return null}
     finally{savingRef.current=false;setSavingDraft(false)}
   }
   async function openOM(row,skipConfirm){
-    if(!skipConfirm&&row.id!==omId&&isDirtyRef.current&&!window.confirm("You have unsaved changes on this OM. Open the other one anyway?"))return;
+    if(!skipConfirm&&isDirtyRef.current&&!window.confirm("You have unsaved changes on this OM. Discard them and open "+(row.id===omIdRef.current?"the last saved version":"the other OM")+"?"))return;
+    resetForm();const token=sessionRef.current;const live=()=>sessionRef.current===token;
+    loadingRef.current=true;setLoadingOM(true);
     try{
-      const r=await sbFetch("/rest/v1/oms?id=eq."+row.id+"&select=*");const o=r&&r[0];if(!o){showToast("That OM is no longer available");return}
-      resetForm();photoUrlMap.current=new Map();setOmId(o.id);setOmRow(o);setGenErrors(null);
+      const r=await sbFetch("/rest/v1/oms?id=eq."+row.id+"&select=*");const o=r&&r[0];
+      if(!live())return;
+      if(!o||o.deleted_at){showToast("That OM is no longer available");fetchOMs();return}
+      photoUrlMap.current=new Map();omIdRef.current=o.id;omRowRef.current=o;setOmId(o.id);setOmRow(o);setGenErrors(null);
       if(o.listing_legacy_id){setImportedLegacyId(o.listing_legacy_id);setSelectedListingId(o.listing_id||"")}
       const dd=o.data||{};if(dd.propertyName!=null)setPropertyName(dd.propertyName);if(dd.unitsHint!=null)setUnitsHint(String(dd.unitsHint));
       setNavOpen(false);try{window.history.replaceState(null,"","?om="+o.id)}catch(e){}
-      await hydrateOM(Object.assign({},dd,{version:2}));
+      await hydrateOM(Object.assign({},dd,{version:2}),live);
+      if(!live())return;
       fpResetPending.current=true;setLastSavedAt(o.updated_at);setSaveError("");
       if(o.listing_legacy_id)fetchCrmPhotos(o.listing_legacy_id);
-    }catch(e){showToast("Couldn't open that OM: "+e.message)}
+    }catch(e){if(live())showToast("Couldn't open that OM: "+e.message)}
+    finally{if(live()){loadingRef.current=false;setLoadingOM(false)}}
   }
   async function deleteOM(row){
     if(!window.confirm("Delete the draft \u201c"+(row.title||"Untitled")+"\u201d? You can't undo this from the app."))return;
     try{await sbFetch("/rest/v1/oms?id=eq."+row.id,{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({deleted_at:new Date().toISOString(),deleted_by:(user&&user.email)||""})});
-      if(row.id===omId){resetForm();setOmId(null);setOmRow(null);setLastSavedFp("");try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}}
+      if(row.id===omIdRef.current){resetForm();omIdRef.current=null;omRowRef.current=null;setOmId(null);setOmRow(null);setLastSavedFp("");try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}}
       fetchOMs();showToast("Draft deleted")}catch(e){showToast("Delete failed: "+e.message)}
   }
   function linkListing(id){const l=crmListings.find(x=>x.id===id);if(!l){setSelectedListingId("");setImportedLegacyId("");return}setSelectedListingId(l.id);setImportedLegacyId(l.legacy_id||"");if(l.legacy_id)fetchCrmPhotos(l.legacy_id);showToast("Linked to "+(l.name||l.address))}
@@ -997,47 +1035,70 @@ function App(){
     else await sbFetch("/rest/v1/files",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([Object.assign({legacy_id:fid,uploaded_by:myName||nameFromEmail(user&&user.email),data_url:""},row)])});
     try{await sbFetch("/rest/v1/file_audit_log",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([{action:isExisting?"update":"upload",file_id:fid,file_name:row.name,listing_id:row.linked_listing,folder_path:"",user_name:myName||nameFromEmail(user&&user.email)}])})}catch(e){}
   }
-  async function existingPath(fid){if(!fid)return null;try{const ex=await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid)+"&select=storage_path,linked_listing,deleted_at");return(ex&&ex[0]&&ex[0].linked_listing===importedLegacyId)?ex[0].storage_path:null}catch(e){return null}}
+  // Current CRM row for a file id (null if it was never created). Network errors throw, so we never guess.
+  async function fileState(fid){if(!fid)return null;const ex=await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid)+"&select=legacy_id,storage_path,linked_listing,deleted_at,in_deal_room");return(ex&&ex[0])||null}
+  async function setDealRoom(fid,on){await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({in_deal_room:on})})}
+  async function patchOm(id,fields){const r=await sbFetch("/rest/v1/oms?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify(fields)});if(r&&r[0]&&omIdRef.current===id){omRowRef.current=r[0];setOmRow(r[0])}return r&&r[0]}
   // ── Complete: build the PPTX, file it in the CRM (file share + deal room), mark the OM completed ──
   async function publishOM(){
     if(!importedLegacyId){setGenErrors({errors:["Link this OM to its CRM listing first (just below) so it files under the right property."],warnings:[]});return}
+    if(conflict){setGenErrors({errors:["Someone else saved this OM after you opened it. Reload their version or keep yours (banner at the top) before publishing."],warnings:[]});return}
+    const token=sessionRef.current;const live=()=>sessionRef.current===token;
     setPublishing(true);setGenErrors(null);
     try{
       let mapOverride=null;if(!mapPhoto&&street.trim()&&city.trim())mapOverride=await generateMap(mapZoom);
       const d=await buildOMData(mapOverride);const v=validateOM(d,fin);
       if(v.errors.length){setGenErrors(v);showToast("Fix the items listed before publishing");return}
-      const id=await saveDraft({silent:true});if(!id)throw new Error("Couldn't save the OM before publishing");
-      const blob0=await generateFullOM(d).write({outputType:"blob"});const blob=blob0.type?blob0:new Blob([blob0],{type:PPTX_MIME});
+      const id=await saveDraft({silent:true,wait:true,mapOverride});
+      if(!id)throw new Error(conflict?"someone else saved this OM after you opened it":"couldn't save the OM first");
+      if(!live())throw new Error("you switched to another OM, so nothing was published");
+      const row0=omRowRef.current;const listing=importedLegacyId;
       const fname=(street.trim()||propertyName||"Property")+" - Offering Memorandum.pptx";
-      const hasPdf=!!(omRow&&omRow.pdf_file_id);
-      let fid=omRow&&omRow.pptx_file_id;let path=await existingPath(fid);if(!path)fid=null;
-      const isExisting=!!fid;if(!fid)fid=newFileId();if(!path)path=crmSafePath(fid,fname);
+      const pptx=await fileState(row0.pptx_file_id);const pdf=await fileState(row0.pdf_file_id);
+      // Relinked to a different listing: pull the old files out of the old listing's deal room.
+      for(const f of [pptx,pdf])if(f&&!f.deleted_at&&f.linked_listing!==listing&&f.in_deal_room!==false)await setDealRoom(f.legacy_id,false);
+      const pdfLive=!!(pdf&&!pdf.deleted_at&&pdf.linked_listing===listing);
+      let fid,path,isExisting;
+      if(pptx&&!pptx.deleted_at&&pptx.linked_listing===listing){fid=pptx.legacy_id;path=pptx.storage_path;isExisting=true}
+      else if(row0.pptx_file_id&&!pptx){fid=row0.pptx_file_id;path=crmSafePath(fid,fname);isExisting=false}   // reserved by an earlier attempt that didn't finish
+      else{fid=newFileId();path=crmSafePath(fid,fname);isExisting=false}
+      // Reserve the file id on the OM first, so a retry after any failure reuses it instead of duplicating.
+      if(row0.pptx_file_id!==fid||(!pdfLive&&row0.pdf_file_id))await patchOm(id,Object.assign({pptx_file_id:fid},pdfLive?{}:{pdf_file_id:null}));
+      const blob0=await generateFullOM(d).write({outputType:"blob"});const blob=blob0.type?blob0:new Blob([blob0],{type:PPTX_MIME});
       await crmUpload(path,blob);
-      await upsertCrmFile(fid,isExisting,{name:fname,size:blob.size,mime_type:PPTX_MIME,linked_listing:importedLegacyId,storage_path:path,folder_path:"",category:"general",in_deal_room:!hasPdf,notes:"Generated by the OM Generator",deleted_at:null});
-      const r=await sbFetch("/rest/v1/oms?id=eq."+id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify({status:"completed",completed_at:new Date().toISOString(),completed_by:(user&&user.email)||"",pptx_file_id:fid})});
-      if(r&&r[0])setOmRow(r[0]);
+      await upsertCrmFile(fid,isExisting,{name:fname,size:blob.size,mime_type:PPTX_MIME,linked_listing:listing,storage_path:path,folder_path:"",category:"general",in_deal_room:!pdfLive,notes:"Generated by the OM Generator"});
+      await patchOm(id,{status:"completed",completed_at:new Date().toISOString(),completed_by:(user&&user.email)||"",pptx_file_id:fid});
       const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=fname;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},3000);
-      setGenErrors(v.warnings.length?{errors:[],warnings:v.warnings}:null);fetchOMs();
+      const warn=v.warnings.slice();if(pdfLive)warn.push("The deal room still shows your final PDF from before this change. Export a new PDF and use \u201cReplace final PDF\u201d so buyers see the update.");
+      setGenErrors(warn.length?{errors:[],warnings:warn}:null);fetchOMs();
       showToast(isExisting?"Republished — the CRM copy is updated":"Published to the CRM file share and deal room");
-    }catch(e){console.error(e);setGenErrors({errors:["Publishing failed: "+(e.message||e)],warnings:[]})}
+    }catch(e){console.error(e);setGenErrors({errors:["Publishing failed: "+(e.message||e)+". Nothing was duplicated; you can try again."],warnings:[]})}
     finally{setPublishing(false)}
   }
   // ── Final PDF: goes to the deal room in place of the PowerPoint ──
   async function uploadFinalPdf(file){
     if(!file)return;if(!(file.type==="application/pdf"||/\.pdf$/i.test(file.name))){showToast("Choose a PDF file");return}
-    if(!omRow||omRow.status!=="completed"||!importedLegacyId){showToast("Publish the OM first");return}
+    const row0=omRowRef.current;
+    if(!row0||row0.status!=="completed"||!importedLegacyId){showToast("Publish the OM first");return}
     if(file.size>50*1024*1024){showToast("That PDF is over 50 MB — compress it first");return}
     setPdfUploading(true);
     try{
+      const listing=importedLegacyId;const pptx=await fileState(row0.pptx_file_id);
+      if(!pptx||pptx.deleted_at||pptx.linked_listing!==listing){showToast("Republish first — the published PowerPoint isn't filed under the listing this OM is linked to now");return}
       const fname=(street.trim()||propertyName||"Property")+" - Offering Memorandum.pdf";
-      let fid=omRow.pdf_file_id;let path=await existingPath(fid);if(!path)fid=null;
-      const isExisting=!!fid;if(!fid)fid=newFileId();if(!path)path=crmSafePath(fid,fname);
+      const pdf=await fileState(row0.pdf_file_id);
+      if(pdf&&!pdf.deleted_at&&pdf.linked_listing!==listing&&pdf.in_deal_room!==false)await setDealRoom(pdf.legacy_id,false);
+      let fid,path,isExisting;
+      if(pdf&&!pdf.deleted_at&&pdf.linked_listing===listing){fid=pdf.legacy_id;path=pdf.storage_path;isExisting=true}
+      else if(row0.pdf_file_id&&!pdf){fid=row0.pdf_file_id;path=crmSafePath(fid,fname);isExisting=false}
+      else{fid=newFileId();path=crmSafePath(fid,fname);isExisting=false}
+      if(row0.pdf_file_id!==fid)await patchOm(row0.id,{pdf_file_id:fid});
       await crmUpload(path,file);
-      await upsertCrmFile(fid,isExisting,{name:fname,size:file.size,mime_type:"application/pdf",linked_listing:importedLegacyId,storage_path:path,folder_path:"",category:"general",in_deal_room:true,notes:"Final OM PDF (OM Generator)",deleted_at:null});
-      if(omRow.pptx_file_id)await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(omRow.pptx_file_id),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify({in_deal_room:false})});
-      const r=await sbFetch("/rest/v1/oms?id=eq."+omRow.id,{method:"PATCH",headers:{"Prefer":"return=representation"},body:JSON.stringify({pdf_file_id:fid})});if(r&&r[0])setOmRow(r[0]);
+      await upsertCrmFile(fid,isExisting,{name:fname,size:file.size,mime_type:"application/pdf",linked_listing:listing,storage_path:path,folder_path:"",category:"general",in_deal_room:true,notes:"Final OM PDF (OM Generator)"});
+      if(pptx.in_deal_room!==false)await setDealRoom(pptx.legacy_id,false);
+      await patchOm(row0.id,{pdf_file_id:fid});
       fetchOMs();showToast("PDF is in the deal room; the PowerPoint stays in the file share");
-    }catch(e){console.error(e);showToast("PDF upload failed: "+(e.message||e))}
+    }catch(e){console.error(e);showToast("PDF upload failed: "+(e.message||e)+" — try again")}
     finally{setPdfUploading(false)}
   }
 
@@ -1055,7 +1116,8 @@ function App(){
       const ex=(o.expenses||[]).filter(e=>omNum(e.current)>0||omNum(e.proforma)>0);if(ex.length)setExpenses(ex.map(e=>({label:e.label||"",basis:"fixed",amount:String(omNum(e.current)||omNum(e.proforma))})));}
   }
   // Saved OM (om_data). v2 = this version; older saves only carry text + photos.
-  async function hydrateOM(om){
+  async function hydrateOM(om,live){
+    const ok=()=>!live||live();
     const ph=om.photos||{};const P=om.property||{};
     if(om.version===2){
       if(P.street)setStreet(P.street);if(Array.isArray(P.extraAddresses))setExtraAddresses(P.extraAddresses);
@@ -1063,7 +1125,7 @@ function App(){
       if(P.unitDescription!=null)setUnitDescription(P.unitDescription);if(P.coverTag)setCoverTag(P.coverTag);if(P.priceLabel)setPriceLabel(P.priceLabel);
       if(P.askingPrice!=null)setAskingPrice(String(P.askingPrice));if(P.gbaSf!=null)setGbaSf(String(P.gbaSf));if(P.siteSf!=null)setSiteSf(String(P.siteSf));
       if(P.yearBuilt!=null)setYearBuilt(String(P.yearBuilt));if(P.yearRenovated!=null)setYearRenovated(String(P.yearRenovated));if(P.lotDescription!=null)setLotDescription(P.lotDescription);if(P.styleWord!=null)setStyleWord(P.styleWord);
-      if(Array.isArray(om.selectedAgents)&&om.selectedAgents.length)setSelectedAgents(om.selectedAgents);if(om.agentEdits)setAgentEdits(om.agentEdits);
+      if(Array.isArray(om.selectedAgents))setSelectedAgents(om.selectedAgents);if(om.agentEdits)setAgentEdits(om.agentEdits);
       if(typeof om.offeringText==="string")setOfferingText(om.offeringText);if(typeof om.aiPrompt==="string")setAiPrompt(om.aiPrompt);
       if(om.summaryOverrides)setSummaryOverrides(om.summaryOverrides);if(Array.isArray(om.summaryExtra))setSummaryExtra(om.summaryExtra);if(typeof om.summaryNote==="string")setSummaryNote(om.summaryNote);setShowPricePerUnit(!!om.showPricePerUnit);
       if(Array.isArray(om.rentRoll)&&om.rentRoll.length)setRentRoll(om.rentRoll);if(om.rentRollDate!=null)setRentRollDate(om.rentRollDate);
@@ -1079,15 +1141,15 @@ function App(){
       if(Array.isArray(om.rentRoll)&&om.rentRoll.some(u=>omHas(u.currentRent)||omHas(u.marketRent)))applyCrmFinancials({rentRoll:om.rentRoll});
     }
     const L=async u=>{if(!u)return null;const d=await urlToDataURL(u);if(d&&/^https?:/.test(u))photoUrlMap.current.set(d,u);return d};
-    if(ph.cover)setCoverPhoto(await L(ph.cover));
-    if(ph.hero||ph.team)setHeroPhoto(await L(ph.hero||ph.team));
-    if(ph.divider||ph.financialDivider)setDividerPhoto(await L(ph.divider||ph.financialDivider));
-    if(ph.map)setMapPhoto(await L(ph.map));
-    if(ph.aerial)setAerialPhoto(await L(ph.aerial));
-    if(ph.flood||ph.floodMap)setFloodMapPhoto(await L(ph.flood||ph.floodMap));
-    if(Array.isArray(ph.grid))setGridPhotos((await Promise.all(ph.grid.map(L))).filter(Boolean));
-    else if(Array.isArray(ph.sections))setGridPhotos((await Promise.all([].concat(...ph.sections.map(s=>s.photos||[])).filter(Boolean).map(L))).filter(Boolean));
-    if(ph.agents)setAgentPhotos(Object.fromEntries(await Promise.all(Object.entries(ph.agents).map(async([k,u])=>[k,await L(u)]))));
+    if(ph.cover){const v=await L(ph.cover);if(ok())setCoverPhoto(v)}
+    if(ph.hero||ph.team){const v=await L(ph.hero||ph.team);if(ok())setHeroPhoto(v)}
+    if(ph.divider||ph.financialDivider){const v=await L(ph.divider||ph.financialDivider);if(ok())setDividerPhoto(v)}
+    if(ph.map){const v=await L(ph.map);if(ok())setMapPhoto(v)}
+    if(ph.aerial){const v=await L(ph.aerial);if(ok())setAerialPhoto(v)}
+    if(ph.flood||ph.floodMap){const v=await L(ph.flood||ph.floodMap);if(ok())setFloodMapPhoto(v)}
+    if(Array.isArray(ph.grid)){const v=(await Promise.all(ph.grid.map(L))).filter(Boolean);if(ok())setGridPhotos(v)}
+    else if(Array.isArray(ph.sections)){const v=(await Promise.all([].concat(...ph.sections.map(s=>s.photos||[])).filter(Boolean).map(L))).filter(Boolean);if(ok())setGridPhotos(v)}
+    if(ph.agents){const v=Object.fromEntries(await Promise.all(Object.entries(ph.agents).map(async([k,u])=>[k,await L(u)])));if(ok())setAgentPhotos(v)}
   }
 
   async function loadListing(id){
@@ -1115,10 +1177,18 @@ function App(){
       if(l.legacy_id){const hasSaved=!!(l.om_data&&l.om_data.photos);fetchCrmPhotos(l.legacy_id).then(cp=>{if(cp&&cp.length&&!hasSaved)autoAssignCrmStarter(cp)})}
     }catch(e){console.error("loadListing error:",e.message);showToast("Couldn't load that listing")}
   }
-  function handleImportListing(id){setSelectedListingId(id);if(id)loadListing(id)}
+  function handleImportListing(id){
+    if(!id){setSelectedListingId("");return}
+    if(omIdRef.current){
+      if(!window.confirm((isDirtyRef.current?"You have unsaved changes on the open OM. ":"")+"Start a new OM from this listing? The open OM stays in the sidebar."))return;
+      resetForm();omIdRef.current=null;omRowRef.current=null;setOmId(null);setOmRow(null);setLastSavedFp("");try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}
+    }
+    setSelectedListingId(id);loadListing(id);
+  }
 
-  function handleStartFresh(){if(isDirty&&!window.confirm("You have unsaved changes on this OM. Start a new one anyway?"))return;resetForm();setOmId(null);setOmRow(null);setLastSavedFp("");setLastSavedAt(null);setSaveError("");try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}showToast("New OM started")}
+  function handleStartFresh(){if(isDirty&&!window.confirm("You have unsaved changes on this OM. Start a new one anyway?"))return;resetForm();omIdRef.current=null;omRowRef.current=null;setOmId(null);setOmRow(null);setLastSavedFp("");setLastSavedAt(null);try{window.history.replaceState(null,"",window.location.pathname)}catch(e){}showToast("New OM started")}
   function resetForm(){
+    sessionRef.current++;loadingRef.current=false;setLoadingOM(false);setConflict(null);setSaveError("");
     setSelectedListingId("");setImportedLegacyId("");setCrmPhotos([]);setUnitsHint("");setGenErrors(null);
     setPropertyName("");setStreet("");setExtraAddresses([]);setCity("");setStateAbbr("LA");setZip("");setNeighborhood("");setUnitDescription("");setCoverTag("FOR SALE");setPriceLabel("BUILDING PRICE");
     setAskingPrice("");setGbaSf("");setSiteSf("");setYearBuilt("");setYearRenovated("");setLotDescription("");setStyleWord("");
@@ -1283,8 +1353,8 @@ function App(){
       <button className="btn-dark btn-sm nav-toggle" onClick={()=>setNavOpen(!navOpen)}>☰ OMs</button>
       <h1>BRIDGEWATER <span className="red">OM GENERATOR</span></h1>
       <div style={{flex:1}}/>
-      {hasContent&&<span className={"save-state"+(saveError?" bad":isDirty?" dirty":"")} title={saveError||""}>{savingDraft?"Saving…":saveError?"Save failed — retry":isDirty?"Unsaved changes":(lastSavedAt?"Saved "+timeAgo(lastSavedAt):"")}</span>}
-      <button className="btn-red btn-sm" onClick={()=>saveDraft()} disabled={savingDraft||!hasContent}>{savingDraft?<span className="spinner"/>:"Save progress"}</button>
+      {hasContent&&<span className={"save-state"+(saveError?" bad":isDirty?" dirty":"")} title={saveError||""}>{loadingOM?"Loading…":savingDraft?"Saving…":conflict?"Changed elsewhere":saveError?"Save failed — retry":isDirty?"Unsaved changes":(lastSavedAt?"Saved "+timeAgo(lastSavedAt):"")}</span>}
+      <button className="btn-red btn-sm" onClick={()=>saveDraft()} disabled={savingDraft||!hasContent||loadingOM||!!conflict}>{savingDraft?<span className="spinner"/>:"Save progress"}</button>
       <span className="top-email">{user.email}</span>
       <button className="btn-dark btn-sm" onClick={handleLogout}>Logout</button>
     </div>
@@ -1307,6 +1377,8 @@ function App(){
     {navOpen&&<div className="side-scrim" onClick={()=>setNavOpen(false)}/>}
     <main className="main">
     <div className="container">
+      {conflict&&<div className="err-box" style={{marginTop:0,marginBottom:14}}><b>{conflict.who} saved this OM{conflict.at?" at "+new Date(conflict.at).toLocaleTimeString():""} after you opened it.</b> Nothing was overwritten, and your edits are still on screen. Autosave is paused.
+        <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap"}}><button className="btn-dark btn-sm" onClick={()=>openOM({id:omIdRef.current},true)}>Load their version (discard mine)</button><button className="btn-red btn-sm" onClick={()=>{setConflict(null);saveDraft({force:true})}}>Keep mine (overwrite theirs)</button></div></div>}
       {omRow&&<div className={"om-banner"+(omRow.status==="completed"?" done":"")}>{omRow.status==="completed"?<>Completed {new Date(omRow.completed_at).toLocaleDateString()} by {nameFromEmail(omRow.completed_by)} — edits here won't reach the CRM until you republish on Step 7.</>:<>Draft{lastSavedAt?" · saved "+timeAgo(lastSavedAt):""}{importedLegacyId?" · linked to "+(((crmListings.find(l=>l.legacy_id===importedLegacyId)||{}).name)||importedLegacyId):" · not linked to a CRM listing yet"}</>}</div>}
       <div className="step-nav">{steps.map((s,i)=><div key={i} className={"step-btn"+(step===i+1?" active":step>i+1?" done":"")} onClick={()=>setStep(i+1)}>{i+1}. {s}</div>)}</div>
 
