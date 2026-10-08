@@ -168,6 +168,7 @@ table.fin-table input:disabled,input:disabled{background:var(--surface2);color:v
 .af-propose{background:#fffbeb;border:1px solid #f59e0b;border-radius:6px;padding:12px;font-size:12.5px;margin-top:10px;color:#78350f}
 .af-prop-grid{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin-top:8px}
 .af-prop-grid span{color:#92400e}
+.drop-over{outline:2px dashed var(--red);outline-offset:-4px;background:#fff5f5 !important}
 </style>
 </head>
 <body>
@@ -783,6 +784,13 @@ const AF_TYPES=new Set(["street","avenue","boulevard","drive","road","lane","cou
 function addrCore(a){const t=String(a||"").toLowerCase().replace(/[.#]/g," ").replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean).map(x=>AF_ABBR[x]||x);while(t.length>2&&AF_TYPES.has(t[t.length-1]))t.pop();return t.join(" ")}
 function addrMatches(listingAddr,street){const s=addrCore(String(street||"").split(",")[0]);if(!/^\d+[a-z]? [a-z]/.test(s))return false;
   return String(listingAddr||"").split(/,|&|\band\b|\||\//i).some(part=>addrCore(part)===s)}
+
+// Drag-and-drop props for any card: highlights while files hover, hands the dropped files to onFiles.
+function dropProps(onFiles){return{
+  onDragOver:e=>{if(!e.dataTransfer||!Array.from(e.dataTransfer.types||[]).includes("Files"))return;e.preventDefault();e.currentTarget.classList.add("drop-over")},
+  onDragLeave:e=>{if(!e.currentTarget.contains(e.relatedTarget))e.currentTarget.classList.remove("drop-over")},
+  onDrop:e=>{if(!e.dataTransfer||!e.dataTransfer.files||!e.dataTransfer.files.length)return;e.preventDefault();e.stopPropagation();e.currentTarget.classList.remove("drop-over");onFiles(e.dataTransfer.files)}}}
+function mergeFiles(prev,list){const seen=new Set(prev.map(f=>f.name+"|"+f.size));return prev.concat(Array.from(list||[]).filter(f=>{const k=f.name+"|"+f.size;if(seen.has(k))return false;seen.add(k);return true}))}
 
 // ════════════════════════════════════════════════════════
 // SMALL UI PIECES
@@ -1802,7 +1810,7 @@ function App(){
           {includeAerial&&<div className="section"><h3>Aerial view</h3><PhotoUpload value={aerialPhoto} onChange={setAerialPhoto} label="Satellite / drone image"/></div>}
           {includeFloodMap&&<div className="section"><h3>Flood map</h3><PhotoUpload value={floodMapPhoto} onChange={setFloodMapPhoto} label="FEMA flood map"/></div>}
         </div>}
-        <div className="card">
+        <div className="card" {...dropProps(addGridFiles)}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
             <h3 style={{margin:0}}>Photo pages <span className="hint">({gridPhotos.length}/{MAX_GRID} photos · {Math.ceil(gridPhotos.length/4)} page{Math.ceil(gridPhotos.length/4)===1?"":"s"})</span></h3>
             <div style={{flex:1}}/>
@@ -1810,7 +1818,7 @@ function App(){
             <label className="btn-red btn-sm file-btn">+ Add photos<input type="file" accept="image/*" multiple onChange={e=>{addGridFiles(e.target.files);e.target.value=""}}/></label>
             {gridPhotos.length>0&&<button className="btn-dark btn-sm" onClick={()=>setGridPhotos([])}>Clear</button>}
           </div>
-          <p className="hint" style={{margin:"8px 0 12px"}}>4 photos per page, in this order (multi-select adds files sorted by name). A last page with 2 or 3 photos uses a matching layout, never an empty square. Keep the cover/hero/divider shots out of this list.</p>
+          <p className="hint" style={{margin:"8px 0 12px"}}>4 photos per page, in this order. Select or drag in as many photos as you like at once (they're added sorted by file name) and add more in batches. A last page with 2 or 3 photos uses a matching layout, never an empty square. Keep the cover/hero/divider shots out of this list.</p>
           {Array.from({length:Math.ceil(gridPhotos.length/4)}).map((_,pi)=><div key={pi} className="grid-page">
             <div className="grid-page-h">Page {pi+1}{showPhotoLabels&&<input value={pageLabels[pi]||""} onChange={e=>{const n=[...pageLabels];n[pi]=e.target.value;setPageLabels(n)}} placeholder="Label, e.g. 8019 Trapier" style={{width:220,marginLeft:10}}/>}</div>
             <div className="grid-thumbs">{gridPhotos.slice(pi*4,pi*4+4).map((src,j)=>{const i=pi*4+j;return <div key={i} className="grid-thumb"><img src={src}/>
@@ -1868,13 +1876,16 @@ function App(){
       {/* STEP 6 — FINANCIALS */}
       {step===6&&<div>
         <h2>Financials</h2>
-        <div className="card import-card">
+        <div className="card import-card" {...dropProps(fl=>{const a=Array.from(fl);setFinFiles(prev=>mergeFiles(prev,a))})}>
           <h3>Fill from the seller's files or your notes</h3>
           <p className="hint" style={{marginBottom:10}}>Upload a rent roll, T-12, tax bill, insurance quote, Rentometer report (PDF, Excel, CSV or screenshots), or paste your notes. The AI fills the tables below for you to check.</p>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-            <label className="btn-dark btn-sm file-btn">Choose files<input type="file" multiple accept=".pdf,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,image/*" onChange={e=>{setFinFiles(Array.from(e.target.files||[]));e.target.value=""}}/></label>
-            {finFiles.map((f,i)=><span key={i} className="chip">{f.name}<button onClick={()=>setFinFiles(finFiles.filter((_,j)=>j!==i))}>×</button></span>)}
+            <label className="btn-dark btn-sm file-btn">Choose files<input type="file" multiple accept=".pdf,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,image/*" onChange={e=>{const fl=Array.from(e.target.files||[]);setFinFiles(prev=>mergeFiles(prev,fl));e.target.value=""}}/></label>
+            {finFiles.map((f,i)=><span key={f.name+"|"+f.size} className="chip">{f.name}<button onClick={()=>setFinFiles(finFiles.filter((_,j)=>j!==i))}>×</button></span>)}
+            {finFiles.length>1&&<button className="link-btn" onClick={()=>setFinFiles([])}>Clear all</button>}
+            {!finFiles.length&&<span className="hint" style={{margin:0}}>Select several at once, add more in batches, or drag files onto this box.</span>}
           </div>
+          {finFiles.filter(f=>f.type==="application/pdf"||/\.pdf$/i.test(f.name)||/^image\//.test(f.type||"")).length>6&&<p className="warn-box">The AI reads up to 6 PDFs or screenshots per read. Spreadsheets, CSVs and text files don't count toward that. Read the first batch, then remove those files and read the rest.</p>}
           <textarea value={finNotes} onChange={e=>setFinNotes(e.target.value)} rows={4} style={{marginTop:10}} placeholder={"Or paste notes, e.g.\nUnit 1 2/1 $1550, Unit 2 1/1 $1100, Unit 4 vacant (ask $1200)…\nTaxes after sale ~$11,500, insurance $12,888, tenants pay utilities, R&M $1/sf, mgmt 6%"}/>
           <div style={{display:"flex",gap:10,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
             <button className="btn-red" onClick={readFinancials} disabled={finLoading}>{finLoading?<><span className="spinner" style={{marginRight:6}}/>Reading…</>:"✦ Read with AI"}</button>
