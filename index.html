@@ -756,17 +756,23 @@ function loadHeicTo(){if(window.HeicTo)return Promise.resolve(window.HeicTo);if(
   return __heicLoading}
 function isHeicFile(f){return !!f&&(/hei[cf]/i.test(f.type||"")||/\.(heic|heif)$/i.test(f.name||""))}
 function heicStatus(text){try{window.dispatchEvent(new CustomEvent("heic-status",{detail:text||""}))}catch(e){}}
-async function heicBlobToJpeg(blob){const H=await loadHeicTo();const out=await H({blob,type:"image/jpeg",quality:0.9});if(!out||!out.size)throw new Error("empty result");return out}
+// One conversion at a time (the converter shares a single worker); the status bar stays up until the last job ends.
+let __heicChain=Promise.resolve();let __heicActive=0;
+function heicJob(msg,fn){__heicActive++;const p=__heicChain.then(()=>{heicStatus(msg);return fn()});__heicChain=p.catch(()=>{});return p.finally(()=>{__heicActive--;if(!__heicActive)heicStatus("")})}
+// Some ".heic" files are really JPEG/PNG (re-saved by an app); those just need relabeling, not converting.
+async function sniffImageType(blob){try{const b=new Uint8Array(await blob.slice(0,12).arrayBuffer());if(b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF)return"image/jpeg";if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47)return"image/png";if(b[0]===0x52&&b[1]===0x49&&b[2]===0x46&&b[3]===0x46&&b[8]===0x57&&b[9]===0x45)return"image/webp"}catch(e){}return""}
+async function heicBlobToJpeg(blob,msg){const real=await sniffImageType(blob);if(real)return real===blob.type?blob:new Blob([blob],{type:real});
+  return heicJob(msg||"Converting iPhone photo to JPG…",async()=>{const H=await loadHeicTo();const out=await H({blob,type:"image/jpeg",quality:0.9});if(!out||!out.size)throw new Error("empty result");return out})}
 // Replace every HEIC in a list with a JPG File of the same name. Files that fail stay as they were and are listed in `failed`.
 async function convertHeicFiles(list){
   const arr=Array.from(list||[]);const total=arr.filter(isHeicFile).length;if(!total)return{files:arr,failed:[],converted:0};
   const files=[];const failed=[];let n=0;
-  try{for(const f of arr){
+  for(const f of arr){
     if(!isHeicFile(f)){files.push(f);continue}
-    n++;heicStatus("Converting iPhone photo"+(total>1?"s "+n+" of "+total:"")+" to JPG…");
-    try{const jpg=await heicBlobToJpeg(f);files.push(new window.File([jpg],String(f.name||"photo").replace(/\.(heic|heif)$/i,"")+".jpg",{type:"image/jpeg",lastModified:f.lastModified||Date.now()}))}
-    catch(e){console.warn("HEIC convert failed:",f.name,e);failed.push(f.name);files.push(f)}}}
-  finally{heicStatus("")}
+    n++;
+    try{const out=await heicBlobToJpeg(f,"Converting iPhone photo"+(total>1?"s "+n+" of "+total:"")+" to JPG…");const ext=out.type==="image/png"?".png":out.type==="image/webp"?".webp":".jpg";
+      files.push(new window.File([out],String(f.name||"photo").replace(/\.(heic|heif)$/i,"")+ext,{type:out.type||"image/jpeg",lastModified:f.lastModified||Date.now()}))}
+    catch(e){console.warn("HEIC convert failed:",f.name,e);failed.push(f.name);files.push(f)}}
   return{files,failed,converted:total-failed.length};
 }
 async function crmFileToDataURL(storage_path){
@@ -774,7 +780,7 @@ async function crmFileToDataURL(storage_path){
   const r=await fetch(SB_URL+"/storage/v1/object/crm-files/"+storage_path,{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token}});
   if(!r.ok)throw new Error("CRM photo download failed ("+r.status+")");
   let b=await r.blob();
-  if(/hei[cf]/i.test(b.type||"")||/\.(heic|heif)$/i.test(storage_path)){heicStatus("Converting iPhone photo to JPG…");try{b=await heicBlobToJpeg(b)}finally{heicStatus("")}}
+  if(/hei[cf]/i.test(b.type||"")||/\.(heic|heif)$/i.test(storage_path))b=await heicBlobToJpeg(b);
   const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
   return await shrinkImage(d);
 }
@@ -808,12 +814,22 @@ function afIsReadableDoc(f){const n=f.name.toLowerCase();return f.type==="applic
 function afIsPhotoFile(f,docNames){return afIsImage(f)&&!AF_DOC_NAME.test(f.name)&&!(docNames&&docNames.indexOf(f.name)>=0)}
 function dataUrlType(d){const m=String(d||"").match(/^data:([^;,]+)/);return m?m[1]:""}
 async function makeThumb(src,maxPx){const im=await loadImg(src);const k=Math.min(1,maxPx/Math.max(im.naturalWidth,im.naturalHeight));const c=document.createElement("canvas");c.width=Math.max(1,Math.round(im.naturalWidth*k));c.height=Math.max(1,Math.round(im.naturalHeight*k));c.getContext("2d").drawImage(im,0,0,c.width,c.height);return c.toDataURL("image/jpeg",0.72).split(",")[1]}
-const AF_ABBR={st:"street",str:"street",ave:"avenue",av:"avenue",blvd:"boulevard",dr:"drive",rd:"road",ln:"lane",ct:"court",pl:"place",pkwy:"parkway",hwy:"highway",cir:"circle",ter:"terrace",sq:"square",n:"north",s:"south",e:"east",w:"west"};
+const AF_ABBR={str:"street",ave:"avenue",av:"avenue",blvd:"boulevard",dr:"drive",rd:"road",ln:"lane",ct:"court",pl:"place",pkwy:"parkway",hwy:"highway",cir:"circle",ter:"terrace",sq:"square",hts:"heights",mt:"mount",ft:"fort"};
 const AF_TYPES=new Set(["street","avenue","boulevard","drive","road","lane","court","place","parkway","highway","circle","terrace","square","way","alley","row"]);
-// "1039 Marais St." -> "1039 marais"  (number + street name, type word dropped, so "2805 Carondelet" matches "2805 Carondelet Street")
-function addrCore(a){const t=String(a||"").toLowerCase().replace(/[.#]/g," ").replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean).map(x=>AF_ABBR[x]||x);while(t.length>2&&AF_TYPES.has(t[t.length-1]))t.pop();return t.join(" ")}
-function addrMatches(listingAddr,street){const s=addrCore(String(street||"").split(",")[0]);if(!/^\d+[a-z]? [a-z]/.test(s))return false;
-  return String(listingAddr||"").split(/,|&|\band\b|\||\//i).some(part=>addrCore(part)===s)}
+const AF_DIRS=new Set(["n","s","e","w","north","south","east","west"]);
+// "1039-1041 N. Marais St" -> {nums:{1039,1040,1041}, name:"marais", type:"street"}
+function addrParts(a){
+  const raw=String(a||"").toLowerCase().replace(/[.#,]/g," ").trim();const m=raw.match(/^(\d+)(?:\s*-\s*(\d+))?[a-z]?\s+(.*)$/);if(!m)return null;
+  const lo=+m[1],hi=m[2]?+m[2]:lo;const nums=new Set();if(hi>=lo&&hi-lo<=40)for(let k=lo;k<=hi;k++)nums.add(k);else nums.add(lo);
+  let t=m[3].replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean);
+  t=t.map((x,i)=>x==="st"?(i===t.length-1?"street":"saint"):(AF_ABBR[x]||x));
+  let type=null;if(t.length>1&&AF_TYPES.has(t[t.length-1]))type=t.pop();
+  const dirs=t.filter(x=>AF_DIRS.has(x)).map(x=>x[0]);const noDir=t.filter(x=>!AF_DIRS.has(x));let dir=null;if(noDir.length){t=noDir;dir=dirs[0]||null}
+  return t.length?{nums,name:t.join(" "),type,dir}:null}
+function addrMatches(listingAddr,street){const s=addrParts(String(street||"").split(",")[0]);if(!s)return false;
+  return String(listingAddr||"").split(/,|&|\band\b|\||\//i).some(part=>{const p=addrParts(part);if(!p||p.name!==s.name)return false;
+    if(p.type&&s.type&&p.type!==s.type)return false;if(p.dir&&s.dir&&p.dir!==s.dir)return false;for(const n of s.nums)if(p.nums.has(n))return true;return false})}
+function cityKey(c){return String(c||"").split(",")[0].toLowerCase().replace(/[^a-z]/g,"")}
 
 // Drag-and-drop props for any card: highlights while files hover, hands the dropped files to onFiles.
 function dropProps(onFiles){return{
@@ -915,6 +931,7 @@ function App(){
   const routedRef=useRef(false);
   const[loadingOM,setLoadingOM]=useState(false);
   const[conflict,setConflict]=useState(null);
+  const conflictRef=useRef(null);conflictRef.current=conflict;
 
   // Property
   const[propertyName,setPropertyName]=useState("");
@@ -1143,7 +1160,8 @@ function App(){
     const token=sessionRef.current;const live=()=>sessionRef.current===token;
     setPublishing(true);setGenErrors(null);
     try{
-      let mapOverride=null;if(!mapPhoto&&street.trim()&&city.trim())mapOverride=await generateMap(mapZoom);
+      let mapOverride=null;if(!mapPhoto&&street.trim()&&city.trim())mapOverride=await generateMap(mapZoom,live);
+      if(!live())throw new Error("you switched to another OM, so nothing was published");
       const d=await buildOMData(mapOverride);const v=validateOM(d,fin);
       if(v.errors.length){setGenErrors(v);showToast("Fix the items listed before publishing");return}
       const id=await saveDraft({silent:true,wait:true,mapOverride});
@@ -1338,11 +1356,13 @@ function App(){
 
   // ── Map from address (Google Static Maps via om-static-map) ──
   function mapAddress(){return [street.trim(),[city.trim(),[stateAbbr,zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean).join(", ")}
-  async function generateMap(zoom){
+  // live (optional): returns false once the user has switched to another OM, so a slow reply never lands in the wrong form.
+  async function generateMap(zoom,live){
+    if(typeof live!=="function")live=null;   // buttons call this with a click event
     const z=zoom||mapZoom;setMapError("");if(!street.trim()||!city.trim()){setMapError("Enter the street address and city on Step 1 first.");return null}
     setMapLoading(true);
-    try{const r=await sbInvoke("om-static-map",{address:mapAddress(),zoom:z});setMapPhoto(r.dataUrl);setMapZoom(z);return r.dataUrl}
-    catch(e){setMapError(e.message);return null}finally{setMapLoading(false)}
+    try{const r=await sbInvoke("om-static-map",{address:mapAddress(),zoom:z});if(live&&!live())return null;setMapPhoto(r.dataUrl);setMapZoom(z);return r.dataUrl}
+    catch(e){if(!live||live())setMapError(e.message);return null}finally{setMapLoading(false)}
   }
 
   // ── AI offering description (om-ai "offering") ──
@@ -1354,12 +1374,14 @@ function App(){
       vacantUnits:vac.map(r=>"Unit "+r.unit+" ("+r.type+")"),inPlaceRentMonthly:fin.inPlaceMo||null,scheduledRentMonthly:fin.schedMo||null,
       proformaRentMonthly:fin.pfMo||null,rentUpsidePct:(fin.inPlaceMo&&fin.pfMo>fin.inPlaceMo)?Math.round((fin.pfMo-fin.inPlaceMo)/fin.inPlaceMo*1000)/10:null};
   }
-  async function generateAIText(){
+  async function generateAIText(live){
+    if(typeof live!=="function")live=null;   // the Write with AI button passes a click event
     setAiLoading(true);setAiError("");setAiWarnings([]);
     try{const r=await sbInvoke("om-ai",{action:"offering",facts:buildFacts(),notes:aiPrompt});
+      if(live&&!live()){setAiLoading(false);return false}
       if(!r.paragraphs||!r.paragraphs.length)throw new Error("The AI returned no text — try again.");
       setOfferingText(r.paragraphs.join("\n\n"));setAiWarnings(r.warnings||[]);setAiLoading(false);return true}
-    catch(e){setAiError(e.message);setAiLoading(false);return false}
+    catch(e){if(!live||live())setAiError(e.message);setAiLoading(false);return false}
   }
 
   // ── Financial import from files / notes (om-ai "extract_financials") ──
@@ -1393,7 +1415,7 @@ function App(){
       const got=x.expenses.map(e=>({label:e.label||"",basis:["fixed","pctEGI","perSF","perUnit"].includes(e.basis)?e.basis:"fixed",amount:omHas(e.amount)?String(omNum(e.amount)):""}));
       // Documents often list only taxes/insurance/utilities. Keep the standard underwriting lines
       // (repairs & maintenance, management fee) the seller's papers leave out, so NOI isn't overstated.
-      const keep=[/repair|maint/i,/manage/i].map(re=>got.some(e=>re.test(e.label))?null:(expenses.find(e=>re.test(e.label||""))||DEFAULT_EXPENSES().find(e=>re.test(e.label)))).filter(Boolean);
+      const keep=[/repair|r\s*&\s*m\b|^maintenance/i,/manag|mgmt|mgt\b/i].map(re=>got.some(e=>re.test(e.label))?null:(expenses.find(e=>re.test(e.label||""))||DEFAULT_EXPENSES().find(e=>re.test(e.label)))).filter(Boolean);
       setExpenses(got.concat(keep.map(e=>Object.assign({},e))));
     }
     if(x.marketRentSupport&&Array.isArray(x.marketRentSupport.rows)&&x.marketRentSupport.rows.length)setMarket({source:x.marketRentSupport.source||"",rows:x.marketRentSupport.rows.map(r=>({unitType:r.unitType||"",sample:r.sample??"",p25:r.p25??"",median:r.median??"",avg:r.avg??"",p75:r.p75??"",applied:r.applied??""}))});
@@ -1432,10 +1454,14 @@ function App(){
   async function addAfFiles(list){let arr=Array.from(list||[]);if(!arr.length)return;setAfError("");
     if(arr.some(isHeicFile)){setAfConverting(true);try{arr=(await withJpegs(arr)).files}finally{setAfConverting(false)}}
     setAfFiles(prev=>mergeFiles(prev,arr))}
-  async function findCrmMatch(st){
+  // ctx {city, zip}: when both sides know the city (or ZIP) they must agree, so "123 Main St" in Houma never links to Baton Rouge's.
+  async function findCrmMatch(st,ctx){
     let rows=null;try{rows=await sbFetch("/rest/v1/rpc/brokerage_listings",{method:"POST",body:"{}"})}catch(e){rows=null}
     if(!Array.isArray(rows))rows=crmListings;
-    const hits=rows.filter(l=>addrMatches(l.address,st)||addrMatches(l.name,st));
+    const myCity=cityKey(ctx&&ctx.city),myZip=String((ctx&&ctx.zip)||"").slice(0,5);
+    const placeOk=l=>{const lc=cityKey(l.city),lz=String(l.zip||"").slice(0,5)||((String(l.city||"").match(/\b\d{5}\b/)||[])[0]||"");
+      if(myZip&&lz&&myZip!==lz)return false;if(myCity&&lc&&myCity!==lc)return false;return true};
+    const hits=rows.filter(l=>(addrMatches(l.address,st)||addrMatches(l.name,st))&&placeOk(l));
     hits.sort((a,b)=>(/closed|dead|withdrawn|expired/i.test(a.status||"")?1:0)-(/closed|dead|withdrawn|expired/i.test(b.status||"")?1:0));
     return hits[0]||null;
   }
@@ -1457,7 +1483,7 @@ function App(){
       {key:"map",label:"Pull the map"},{key:"ai",label:"Write the offering description"},{key:"save",label:"Save the draft"}].map(x=>Object.assign(x,{state:"wait",note:""})));
     try{
       // 1. Photos
-      let ph=[];const reroute=[];
+      let ph=[];const reroute=[];let clsOk=false;
       if(photoFiles.length){afStep("photos","run","Reading "+photoFiles.length+" photo"+(photoFiles.length>1?"s":"")+"…");
         for(const f of photoFiles){
           if(afIsHeic(f)){notes.push(f.name+" couldn't be converted from iPhone format, so it's left out of the OM (it's still copied to the CRM). Try exporting it as a JPG.");continue}
@@ -1466,7 +1492,7 @@ function App(){
         let cls=null;const nCls=Math.min(ph.length,40);
         if(nCls){afStep("photos","run","Picking the cover, page 2 and divider shots…");
           try{const payload=[];for(let k=0;k<nCls;k++)payload.push({i:k,name:ph[k].name,mediaType:"image/jpeg",data:await makeThumb(ph[k].data,640)});
-            const r=await sbInvoke("om-ai",{action:"classify_photos",photos:payload});cls=r.data||null}
+            const r=await sbInvoke("om-ai",{action:"classify_photos",photos:payload});cls=r.data||null;clsOk=!!(cls&&Array.isArray(cls.photos)&&cls.photos.length)}
           catch(e){notes.push("Photo sorting didn't work ("+e.message+"), so photos went in file-name order. Check the cover, page 2 and divider on Step 3.")}}
         if(!live())return;
         const kinds={},qual={};((cls&&cls.photos)||[]).forEach(p=>{kinds[Number(p.i)]=String(p.kind||"other");qual[Number(p.i)]=omNum(p.quality)});
@@ -1526,10 +1552,10 @@ function App(){
       const st=street.trim()||expandStreet(String(P.street||"").trim());let match=null;
       if(importedLegacyId)afStep("crm","done","Already linked to "+(((crmListings.find(l=>l.legacy_id===importedLegacyId)||{}).name)||importedLegacyId));
       else if(!st)afStep("crm","skip","No street address found — add it on this step");
-      else{afStep("crm","run");match=await findCrmMatch(st);if(!live())return;
+      else{afStep("crm","run");match=await findCrmMatch(st,{city:city.trim()||String(P.city||""),zip:zip||String(P.zip||"")});if(!live())return;
         if(match){linkFromMatch(match);afStep("crm","done","Linked to "+(match.name||match.address))}
         else afStep("crm","ask","Not in the CRM yet — see below")}
-      setAfOut({notes,match,proposal:!match&&!importedLegacyId&&!!st,docNames:reroute.map(p=>p.name),propType:String(P.propertyType||"")});
+      setAfOut({notes,match,proposal:!match&&!importedLegacyId&&!!st,docNames:reroute.map(p=>p.name),photoOk:clsOk?ph.filter(p=>p.kind&&p.kind!=="unsorted"&&p.kind!=="other").map(p=>p.name):[],propType:String(P.propertyType||"")});
       setAfStage({token,stage:"post"});
     }catch(e){console.error(e);if(live()){setAfError("Autofill stopped: "+(e.message||e));setAfRunning(false)}}
   }
@@ -1539,10 +1565,10 @@ function App(){
     const live=()=>sessionRef.current===token;
     try{
       if(mapPhoto)afStep("map","done","Kept the existing map");
-      else if(street.trim()&&city.trim()){afStep("map","run");const m=await generateMap(mapZoom);if(!live())return;afStep("map",m?"done":"err",m?"":"The map didn't load. Retry on Step 3.")}
+      else if(street.trim()&&city.trim()){afStep("map","run");const m=await generateMap(mapZoom,live);if(!live())return;afStep("map",m?"done":"err",m?"":"The map didn't load. Retry on Step 3.")}
       else afStep("map","skip","Needs the street and city");
       if(offeringText.trim())afStep("ai","done","Kept your existing text");
-      else if(street.trim()){afStep("ai","run");const ok=await generateAIText();if(!live())return;afStep("ai",ok?"done":"err",ok?"Edit it on Step 4":"Didn't work. Retry on Step 4.")}
+      else if(street.trim()){afStep("ai","run");const ok=await generateAIText(live);if(!live())return;afStep("ai",ok?"done":"err",ok?"Edit it on Step 4":"Didn't work. Retry on Step 4.")}
       else afStep("ai","skip","Needs the street address");
     }catch(e){console.error(e)}
     if(live())setAfStage({token,stage:"save"});
@@ -1550,20 +1576,20 @@ function App(){
   async function afSave(token){
     const live=()=>sessionRef.current===token;
     afStep("save","run");const id=street.trim()||propertyName.trim()||importedLegacyId?await saveDraft({silent:true,wait:true}):null;if(!live())return;
-    afStep("save",id?"done":"err",id?"In the sidebar under In progress":"Not saved yet. Add the address, then use Save progress.");
+    afStep("save",id?"done":"err",id?"In the sidebar under In progress":(conflictRef.current?"Not saved — someone else changed this OM (see the banner at the top)":"Not saved yet. Add the address, then use Save progress."));
     setAfRunning(false);if(id)showToast("Autofill done — review each step before publishing");
   }
   // Copy the uploads into the listing's CRM file share: photos -> Pictures, documents -> file share only (never the deal room).
   async function copyFilesToCrm(legacy){
     const files=afFiles.slice();if(!legacy||!files.length)return;
-    const docNames=(afOut&&afOut.docNames)||[];
+    const docNames=(afOut&&afOut.docNames)||[];const photoOk=(afOut&&afOut.photoOk)||[];
     setAfOut(o=>Object.assign({},o,{copying:true,copyErr:"",copiedN:0}));
     let done=0;const errs=[];const who=myName||nameFromEmail(user&&user.email);
     for(let k=0;k<files.length;k+=3){await Promise.all(files.slice(k,k+3).map(async f=>{
       const key=legacy+"|"+f.name+"|"+f.size;if(afCopiedRef.current.has(key)){done++;return}
       const isPhoto=afIsPhotoFile(f,docNames);const fid=newFileId();const path=crmSafePath(fid,f.name);
       try{await crmUpload(path,f);
-        await upsertCrmFile(fid,false,{name:f.name,size:f.size,mime_type:f.type||"application/octet-stream",linked_listing:legacy,storage_path:path,folder_path:isPhoto?"Pictures":"",category:isPhoto?"general":"financial",in_deal_room:isPhoto?null:false,uploaded_by:who,notes:"Uploaded through OM Generator autofill"});
+        await upsertCrmFile(fid,false,{name:f.name,size:f.size,mime_type:f.type||"application/octet-stream",linked_listing:legacy,storage_path:path,folder_path:isPhoto?"Pictures":"",category:isPhoto?"general":"financial",in_deal_room:(isPhoto&&photoOk.indexOf(f.name)>=0)?null:false,uploaded_by:who,notes:"Uploaded through OM Generator autofill"});
         afCopiedRef.current.add(key);done++;setAfOut(o=>Object.assign({},o,{copiedN:done}))}
       catch(e){errs.push(f.name+": "+(e.message||e))}}))}
     setAfOut(o=>Object.assign({},o,{copying:false,copied:!errs.length,copiedTo:legacy,copiedN:done,copyErr:errs.join("; ")}));
@@ -1575,7 +1601,7 @@ function App(){
     const st=street.trim();if(!st){showToast("Add the street address first");return}
     setAfOut(o=>Object.assign({},o,{creating:true,createErr:""}));
     try{
-      const dup=await findCrmMatch(st);
+      const dup=await findCrmMatch(st,{city:city.trim(),zip});
       if(dup){if(!live())return;linkFromMatch(dup);setAfOut(o=>Object.assign({},o,{creating:false,proposal:false,match:dup}));afStep("crm","done","Linked to "+(dup.name||dup.address));showToast("It's already in the CRM — linked to "+(dup.name||dup.address));setAfStage({token,stage:"save"});return}
       const me=myName||nameFromEmail(user&&user.email);
       const team=Array.from(new Set([me].concat(selectedAgents.map(id=>{const a=BW_AGENTS.find(z=>z.id===id);return a?a.name.split(" ")[0]:null})).filter(Boolean)));
@@ -1587,8 +1613,8 @@ function App(){
         opStmt:{grossRentCurrent:Math.round(fin.cur.gpr),grossRentProforma:Math.round(fin.pf.gpr),vacancyPctCurrent:omNum(vacancyPct),vacancyPctProforma:omNum(vacancyPct),
           expenses:fin.cur.lines.map((l,k)=>({label:l.label,current:Math.round(l.amount),proforma:Math.round((fin.pf.lines[k]||{}).amount||0),notes:""}))}};
       const row={legacy_id:"listing_"+Math.random().toString(36).slice(2,8),name:st,address:st,city:[city.trim(),stateAbbr].filter(Boolean).join(", "),zip:zip||"",
-        units,residential_units:/commercial/i.test(type)?0:units,asking_price:omNum(askingPrice),price_per_unit:isFinite(fin.pricePerUnit)?Math.round(fin.pricePerUnit):0,
-        cap_rate:isFinite(fin.inPlaceCap)?r1(fin.inPlaceCap*100):0,occupancy:isFinite(fin.occupancy)?Math.round(fin.occupancy*100):0,
+        units,residential_units:/commercial/i.test(type)?0:units,asking_price:omNum(askingPrice)||null,price_per_unit:isFinite(fin.pricePerUnit)?Math.round(fin.pricePerUnit):null,
+        cap_rate:isFinite(fin.inPlaceCap)?r1(fin.inPlaceCap*100):null,occupancy:isFinite(fin.occupancy)?Math.round(fin.occupancy*100):null,
         proforma_cap_rate:isFinite(fin.proformaCap)?r1(fin.proformaCap*100):null,gba_sf:omNum(gbaSf)||null,price_per_sf:isFinite(fin.pricePerSf)?Math.round(fin.pricePerSf*100)/100:null,
         lot_size:lotDescription.trim()||(omNum(siteSf)?omNum(siteSf).toLocaleString()+" sf":null),flood_zone:flood,
         status:"Active",market_status:"Off Market",listing_mode:"sale",type,property_class:((type==="Multifamily"&&units>0&&units<=4)||type==="Single Family")?"Residential":"Commercial",
@@ -1691,7 +1717,7 @@ function App(){
         <div className="card af-card">
           <div className="af-title">Autofill from files</div>
           <div className="hint" style={{marginTop:0,marginBottom:10}}>Drop in the listing photos and the seller's documents (rent roll, T-12, tax bill, insurance, Rentometer) and any notes. The photos are sorted into the cover, page 2, divider and photo pages; the documents fill in the property facts and financials; then the map and offering description are made and the draft is saved. Fields you've already filled are left alone. If the property isn't in the CRM yet, you'll get a one-click option to add it.</div>
-          <div className={"af-drop"+(afDrag?" over":"")} onDragEnter={e=>{e.preventDefault();afDragRef.current++;setAfDrag(true)}} onDragLeave={()=>{afDragRef.current=Math.max(0,afDragRef.current-1);if(!afDragRef.current)setAfDrag(false)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();afDragRef.current=0;setAfDrag(false);addAfFiles(e.dataTransfer.files)}}>
+          <div className={"af-drop"+(afDrag?" over":"")} onDragEnter={e=>{e.preventDefault();afDragRef.current++;setAfDrag(true)}} onDragLeave={()=>{afDragRef.current=Math.max(0,afDragRef.current-1);if(!afDragRef.current)setAfDrag(false)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();afDragRef.current=0;setAfDrag(false);if(afRunning){showToast("Wait for the autofill to finish before adding files");return}addAfFiles(e.dataTransfer.files)}}>
             <input type="file" multiple accept="image/*,.heic,.heif,.pdf,.xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.md" disabled={afRunning} onChange={e=>{addAfFiles(e.target.files);e.target.value=""}}/>
             <b>Drop photos and documents here</b> or click to choose
             <div className="hint">Photos straight from an iPhone are fine (converted to JPG automatically) · PDF, Excel, CSV or screenshots of documents</div>
@@ -1717,6 +1743,12 @@ function App(){
               {afFiles.length>0&&!(afOut.copied&&afOut.copiedTo===afOut.match.legacy_id)&&<button className="btn-dark btn-sm" disabled={afOut.copying||afRunning} onClick={()=>copyFilesToCrm(afOut.match.legacy_id)}>{afOut.copying?"Copying "+(afOut.copiedN||0)+" of "+afFiles.length+"…":"Copy the "+afFiles.length+" uploaded file"+(afFiles.length>1?"s":"")+" to this listing's file share"}</button>}
               {afOut.copied&&afOut.copiedTo===afOut.match.legacy_id&&<span>✓ {afOut.copiedN} file{afOut.copiedN>1?"s":""} copied (photos in Pictures; documents kept out of the deal room).</span>}
               <button className="link-btn" disabled={afRunning} onClick={unlinkAfMatch}>Not this property</button>
+            </div></div>}
+          {afOut&&!afOut.match&&!afOut.created&&!afOut.proposal&&importedLegacyId&&afFiles.length>0&&<div className="result-box">
+            This OM is linked to “{((crmListings.find(l=>l.legacy_id===importedLegacyId)||{}).name)||importedLegacyId}”.
+            <div style={{marginTop:8,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap"}}>
+              {!(afOut.copied&&afOut.copiedTo===importedLegacyId)?<button className="btn-dark btn-sm" disabled={afOut.copying||afRunning} onClick={()=>copyFilesToCrm(importedLegacyId)}>{afOut.copying?"Copying "+(afOut.copiedN||0)+" of "+afFiles.length+"…":"Copy the "+afFiles.length+" uploaded file"+(afFiles.length>1?"s":"")+" to its file share"}</button>
+                :<span>✓ {afOut.copiedN} file{afOut.copiedN>1?"s":""} copied (photos in Pictures; documents kept out of the deal room).</span>}
             </div></div>}
           {afOut&&afOut.proposal&&!importedLegacyId&&<div className="af-propose">
             <b>{street.trim()||"This property"} isn't in the CRM yet.</b> Add it as a listing?
