@@ -148,6 +148,26 @@ table.fin-table input:disabled,input:disabled{background:var(--surface2);color:v
 .om-banner.done{background:#ecfdf5;color:#065f46}
 .link-box{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin:0 0 16px;text-align:left}
 @media(max-width:900px){.nav-toggle{display:inline-block}.top-email{display:none}.side{position:fixed;left:0;top:53px;z-index:90;transform:translateX(-100%);transition:transform .2s;box-shadow:4px 0 20px rgba(0,0,0,.3)}.side.open{transform:none}.side-scrim{display:block;position:fixed;inset:53px 0 0 0;background:rgba(0,0,0,.3);z-index:80}}
+.af-card{border-color:#fca5a5;background:#fffafa;margin-bottom:16px}
+.af-title{font-family:var(--fontH);font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--text);margin-bottom:4px}
+.af-drop{position:relative;border:2px dashed #e5a3a3;border-radius:8px;padding:18px;text-align:center;font-size:13px;color:var(--text);background:#fff;cursor:pointer}
+.af-drop.over{border-color:var(--red);background:#fff1f1}
+.af-drop input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.af-files{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+.af-photos{background:#fef2f2;border-color:#fca5a5;font-weight:600}
+.af-notes{width:100%;margin-top:10px;font-size:12.5px}
+.link-btn{background:none;border:none;color:var(--muted);text-decoration:underline;font-size:12px;padding:2px 4px;cursor:pointer}
+.link-btn:disabled{opacity:.4;cursor:default}
+.af-steps{list-style:none;margin:12px 0 0;padding:10px 12px;background:#fff;border:1px solid var(--border);border-radius:8px}
+.af-st{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;padding:3px 0;color:var(--text)}
+.af-st.wait,.af-st.skip{color:var(--muted)}
+.af-ic{width:18px;flex:none;text-align:center;font-weight:700}
+.af-st.done .af-ic{color:var(--green)}.af-st.err .af-ic{color:var(--red)}.af-st.ask .af-ic{color:var(--amber)}
+.af-st .spinner{width:12px;height:12px;border-width:2px}
+.af-note{font-weight:400;color:var(--muted)}
+.af-propose{background:#fffbeb;border:1px solid #f59e0b;border-radius:6px;padding:12px;font-size:12.5px;margin-top:10px;color:#78350f}
+.af-prop-grid{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin-top:8px}
+.af-prop-grid span{color:#92400e}
 </style>
 </head>
 <body>
@@ -749,6 +769,21 @@ function newFileId(){return "file_"+Math.random().toString(36).slice(2,10)}
 function crmSafePath(id,name){let safe=String(name||"file").replace(/[^A-Za-z0-9._-]+/g,"_");if(safe.length>120)safe=safe.slice(-120);return id+"/"+safe}
 async function crmUpload(path,blob){const token=localStorage.getItem("sb_token");const r=await fetch(SB_URL+"/storage/v1/object/crm-files/"+String(path).split("/").map(encodeURIComponent).join("/"),{method:"POST",headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token,"Content-Type":blob.type||"application/octet-stream","x-upsert":"true"},body:blob});if(!r.ok)throw new Error("Upload to the CRM file share failed ("+r.status+"): "+(await r.text()).slice(0,160));return path}
 
+// ── Autofill helpers ──
+const AF_DOC_NAME=/rent|roll|t-?12|tax|insur|p&l|pnl|profit|statement|lease|budget|operat|income|expense|rentometer|apprais|ledger|invoice|bill|survey|financ/i;
+function afIsImage(f){return /^image\//.test(f.type||"")||/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name)}
+function afIsHeic(f){return /hei[cf]/i.test(f.type||"")||/\.(heic|heif)$/i.test(f.name)}
+function afIsReadableDoc(f){const n=f.name.toLowerCase();return f.type==="application/pdf"||/\.(pdf|xlsx|xlsm|xls|ods|csv|tsv|txt|md)$/.test(n)||/^text\//.test(f.type||"")}
+function afIsPhotoFile(f,docNames){return afIsImage(f)&&!AF_DOC_NAME.test(f.name)&&!(docNames&&docNames.indexOf(f.name)>=0)}
+function dataUrlType(d){const m=String(d||"").match(/^data:([^;,]+)/);return m?m[1]:""}
+async function makeThumb(src,maxPx){const im=await loadImg(src);const k=Math.min(1,maxPx/Math.max(im.naturalWidth,im.naturalHeight));const c=document.createElement("canvas");c.width=Math.max(1,Math.round(im.naturalWidth*k));c.height=Math.max(1,Math.round(im.naturalHeight*k));c.getContext("2d").drawImage(im,0,0,c.width,c.height);return c.toDataURL("image/jpeg",0.72).split(",")[1]}
+const AF_ABBR={st:"street",str:"street",ave:"avenue",av:"avenue",blvd:"boulevard",dr:"drive",rd:"road",ln:"lane",ct:"court",pl:"place",pkwy:"parkway",hwy:"highway",cir:"circle",ter:"terrace",sq:"square",n:"north",s:"south",e:"east",w:"west"};
+const AF_TYPES=new Set(["street","avenue","boulevard","drive","road","lane","court","place","parkway","highway","circle","terrace","square","way","alley","row"]);
+// "1039 Marais St." -> "1039 marais"  (number + street name, type word dropped, so "2805 Carondelet" matches "2805 Carondelet Street")
+function addrCore(a){const t=String(a||"").toLowerCase().replace(/[.#]/g," ").replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean).map(x=>AF_ABBR[x]||x);while(t.length>2&&AF_TYPES.has(t[t.length-1]))t.pop();return t.join(" ")}
+function addrMatches(listingAddr,street){const s=addrCore(String(street||"").split(",")[0]);if(!/^\d+[a-z]? [a-z]/.test(s))return false;
+  return String(listingAddr||"").split(/,|&|\band\b|\||\//i).some(part=>addrCore(part)===s)}
+
 // ════════════════════════════════════════════════════════
 // SMALL UI PIECES
 // ════════════════════════════════════════════════════════
@@ -913,6 +948,16 @@ function App(){
   const[finResult,setFinResult]=useState(null);
   const[finError,setFinError]=useState("");
   const[finUndo,setFinUndo]=useState(null);
+  // Autofill from uploads (photos + seller documents + notes)
+  const[afFiles,setAfFiles]=useState([]);
+  const[afNotes,setAfNotes]=useState("");
+  const[afRunning,setAfRunning]=useState(false);
+  const[afSteps,setAfSteps]=useState([]);
+  const[afOut,setAfOut]=useState(null);        // {notes, match, proposal, docNames, creating, created, copying, copied, copiedN, copyErr}
+  const[afError,setAfError]=useState("");
+  const[afStage,setAfStage]=useState(null);    // {token, stage:"post"|"save"} — runs after React has applied the filled-in state
+  const afCopiedRef=useRef(new Set());
+  const afDragRef=useRef(0);const[afDrag,setAfDrag]=useState(false);
 
   // ── auth bootstrap (unchanged behavior) ──
   useEffect(()=>{(async()=>{
@@ -1042,7 +1087,7 @@ function App(){
   async function upsertCrmFile(fid,isExisting,row){
     if(isExisting)await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid),{method:"PATCH",headers:{"Prefer":"return=minimal"},body:JSON.stringify(row)});
     else await sbFetch("/rest/v1/files",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([Object.assign({legacy_id:fid,uploaded_by:myName||nameFromEmail(user&&user.email),data_url:""},row)])});
-    try{await sbFetch("/rest/v1/file_audit_log",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([{action:isExisting?"update":"upload",file_id:fid,file_name:row.name,listing_id:row.linked_listing,folder_path:"",user_name:myName||nameFromEmail(user&&user.email)}])})}catch(e){}
+    try{await sbFetch("/rest/v1/file_audit_log",{method:"POST",headers:{"Prefer":"return=minimal"},body:JSON.stringify([{action:isExisting?"update":"upload",file_id:fid,file_name:row.name,listing_id:row.linked_listing,folder_path:row.folder_path||"",user_name:myName||nameFromEmail(user&&user.email)}])})}catch(e){}
   }
   // Current CRM row for a file id (null if it was never created). Network errors throw, so we never guess.
   async function fileState(fid){if(!fid)return null;const ex=await sbFetch("/rest/v1/files?legacy_id=eq."+encodeURIComponent(fid)+"&select=legacy_id,storage_path,linked_listing,deleted_at,in_deal_room");return(ex&&ex[0])||null}
@@ -1208,6 +1253,7 @@ function App(){
     setSummaryOverrides({});setSummaryExtra([]);setSummaryNote("");setShowPricePerUnit(false);
     setRentRoll(DEFAULT_RENT_ROLL());setRentRollDate("");setRentRollIntro("");setIntroEdited(false);setVacancyPct("5");setOtherIncome("0");setExpenses(DEFAULT_EXPENSES());setExpenseProfile("");setOpexFootnote("");setMarket(DEFAULT_MARKET());
     setIncludeCashFlow(false);setCfItems(DEFAULT_CF_ITEMS());setCfTerms(DEFAULT_CF_TERMS());setFinFiles([]);setFinNotes("");setFinResult(null);setFinUndo(null);
+    setAfFiles([]);setAfNotes("");setAfRunning(false);setAfSteps([]);setAfOut(null);setAfError("");setAfStage(null);
     setStep(1);
   }
 
@@ -1268,9 +1314,8 @@ function App(){
     setAiLoading(true);setAiError("");setAiWarnings([]);
     try{const r=await sbInvoke("om-ai",{action:"offering",facts:buildFacts(),notes:aiPrompt});
       if(!r.paragraphs||!r.paragraphs.length)throw new Error("The AI returned no text — try again.");
-      setOfferingText(r.paragraphs.join("\n\n"));setAiWarnings(r.warnings||[]);}
-    catch(e){setAiError(e.message)}
-    setAiLoading(false);
+      setOfferingText(r.paragraphs.join("\n\n"));setAiWarnings(r.warnings||[]);setAiLoading(false);return true}
+    catch(e){setAiError(e.message);setAiLoading(false);return false}
   }
 
   // ── Financial import from files / notes (om-ai "extract_financials") ──
@@ -1292,24 +1337,220 @@ function App(){
     }catch(e){setFinError(e.message)}
     setFinLoading(false);
   }
-  function applyFinResult(){
-    const x=finResult||{};
-    setFinUndo({rentRoll,vacancyPct,otherIncome,expenses,market,rentRollDate,askingPrice,gbaSf,siteSf,yearBuilt,yearRenovated,neighborhood});
-    if(Array.isArray(x.rentRoll)&&x.rentRoll.length)setRentRoll(x.rentRoll.map((u,i)=>{const vac=/vac/i.test(u.status||"")||!omNum(u.currentRent);return{unit:String(u.unit||i+1),type:omTypeLabel(u.type||""),status:vac?"Vacant":"Occupied",currentRent:vac?"":String(omNum(u.currentRent)),modeledRent:omHas(u.modeledRent)?String(omNum(u.modeledRent)):(vac?"":String(omNum(u.currentRent))),proformaRent:omHas(u.proformaRent)?String(omNum(u.proformaRent)):""}}));
+  // Extraction result (om-ai extract_financials) -> form. Tables are replaced when the documents have them;
+  // property facts only fill fields that are still empty, so nothing typed by hand is overwritten.
+  function applyExtraction(x){
+    x=x||{};
+    const hasRR=Array.isArray(x.rentRoll)&&x.rentRoll.length>0;
+    if(hasRR)setRentRoll(x.rentRoll.map((u,i)=>{const vac=/vac/i.test(u.status||"")||!omNum(u.currentRent);return{unit:String(u.unit||i+1),type:omTypeLabel(u.type||""),status:vac?"Vacant":"Occupied",currentRent:vac?"":String(omNum(u.currentRent)),modeledRent:omHas(u.modeledRent)?String(omNum(u.modeledRent)):(vac?"":String(omNum(u.currentRent))),proformaRent:omHas(u.proformaRent)?String(omNum(u.proformaRent)):""}}));
     if(omHas(x.vacancyPct))setVacancyPct(String(omNum(x.vacancyPct)));
     if(omHas(x.otherIncome))setOtherIncome(String(omNum(x.otherIncome)));
     if(Array.isArray(x.expenses)&&x.expenses.length)setExpenses(x.expenses.map(e=>({label:e.label||"",basis:["fixed","pctEGI","perSF","perUnit"].includes(e.basis)?e.basis:"fixed",amount:omHas(e.amount)?String(omNum(e.amount)):""})));
     if(x.marketRentSupport&&Array.isArray(x.marketRentSupport.rows)&&x.marketRentSupport.rows.length)setMarket({source:x.marketRentSupport.source||"",rows:x.marketRentSupport.rows.map(r=>({unitType:r.unitType||"",sample:r.sample??"",p25:r.p25??"",median:r.median??"",avg:r.avg??"",p75:r.p75??"",applied:r.applied??""}))});
     if(x.rentRollDate)setRentRollDate(String(x.rentRollDate));
-    const P=x.property||{};
+    const P=x.property||{};const str=v=>v===null||v===undefined?"":String(v).trim();
+    const freshAddr=!street.trim();
+    if(str(P.street)&&freshAddr)setStreet(expandStreet(str(P.street)));
+    if(str(P.street)&&!propertyName.trim())setPropertyName(expandStreet(str(P.street)));
+    if(str(P.city)&&!city.trim())setCity(str(P.city));
+    if(/^[A-Za-z]{2}$/.test(str(P.state))&&freshAddr)setStateAbbr(str(P.state).toUpperCase());
+    if(str(P.zip)&&!zip)setZip(str(P.zip).replace(/[^0-9-]/g,"").slice(0,10));
+    if(str(P.neighborhood)&&!neighborhood.trim())setNeighborhood(str(P.neighborhood));
+    const nUnits=hasRR?x.rentRoll.length:omNum(P.units);
+    if(!unitDescription.trim()){if(str(P.unitDescription))setUnitDescription(str(P.unitDescription));else if(nUnits)setUnitDescription(nUnits+"-unit "+(/mixed/i.test(str(P.propertyType))?"Mixed-Use Building":/commercial/i.test(str(P.propertyType))?"Commercial Building":/single/i.test(str(P.propertyType))?"Single Family Home":"Apartment Complex"))}
     if(omHas(P.askingPrice)&&!omHas(askingPrice))setAskingPrice(String(omNum(P.askingPrice)));
     if(omHas(P.gbaSf)&&!omHas(gbaSf))setGbaSf(String(omNum(P.gbaSf)));
     if(omHas(P.siteSf)&&!omHas(siteSf))setSiteSf(String(omNum(P.siteSf)));
-    if(P.yearBuilt&&!yearBuilt)setYearBuilt(String(P.yearBuilt));if(P.yearRenovated&&!yearRenovated)setYearRenovated(String(P.yearRenovated));
-    if(P.neighborhood&&!neighborhood)setNeighborhood(String(P.neighborhood));
+    if(str(P.yearBuilt)&&!yearBuilt)setYearBuilt(str(P.yearBuilt).replace(/\D/g,"").slice(0,4));
+    if(str(P.yearRenovated)&&!yearRenovated)setYearRenovated(str(P.yearRenovated).replace(/\D/g,"").slice(0,4));
+    if(str(P.lotDescription)&&!lotDescription.trim())setLotDescription(str(P.lotDescription));
+    if(str(P.buildingStyle)&&!styleWord.trim())setStyleWord(str(P.buildingStyle));
+    if(str(P.floodZone)&&!summaryExtra.some(r=>/flood/i.test(r.label||"")))setSummaryExtra(prev=>prev.concat([{label:"FLOOD ZONE",value:str(P.floodZone)}]));
+    if(!hasRR&&omHas(P.units)&&!unitsHint)setUnitsHint(String(omNum(P.units)));
+  }
+  function finSnapshot(){return{rentRoll,vacancyPct,otherIncome,expenses,market,rentRollDate,askingPrice,gbaSf,siteSf,yearBuilt,yearRenovated,neighborhood}}
+  function applyFinResult(){
+    setFinUndo(finSnapshot());applyExtraction(finResult||{});
     setFinResult(null);showToast("Financials filled in — review the tables below");
   }
   function undoFin(){const u=finUndo;if(!u)return;setRentRoll(u.rentRoll);setVacancyPct(u.vacancyPct);setOtherIncome(u.otherIncome);setExpenses(u.expenses);setMarket(u.market);setRentRollDate(u.rentRollDate);setAskingPrice(u.askingPrice);setGbaSf(u.gbaSf);setSiteSf(u.siteSf);setYearBuilt(u.yearBuilt);setYearRenovated(u.yearRenovated);setNeighborhood(u.neighborhood);setFinUndo(null);showToast("Import undone")}
+
+  // ── Autofill from uploads: photos sorted into the slides, documents read into the form,
+  //    map + offering description generated, CRM listing matched (or created with one click) ──
+  function afStep(key,state,note){setAfSteps(prev=>prev.map(st=>st.key===key?Object.assign({},st,{state},note!==undefined?{note}:{}):st))}
+  function addAfFiles(list){const arr=Array.from(list||[]);if(!arr.length)return;setAfFiles(prev=>{const seen=new Set(prev.map(f=>f.name+"|"+f.size));return prev.concat(arr.filter(f=>!seen.has(f.name+"|"+f.size)))});setAfError("")}
+  async function findCrmMatch(st){
+    let rows=null;try{rows=await sbFetch("/rest/v1/rpc/brokerage_listings",{method:"POST",body:"{}"})}catch(e){rows=null}
+    if(!Array.isArray(rows))rows=crmListings;
+    const hits=rows.filter(l=>addrMatches(l.address,st)||addrMatches(l.name,st));
+    hits.sort((a,b)=>(/closed|dead|withdrawn|expired/i.test(a.status||"")?1:0)-(/closed|dead|withdrawn|expired/i.test(b.status||"")?1:0));
+    return hits[0]||null;
+  }
+  function linkFromMatch(m){const l=crmListings.find(x=>x.legacy_id===m.legacy_id);setSelectedListingId(l?l.id:"");setImportedLegacyId(m.legacy_id);fetchCrmPhotos(m.legacy_id)}
+  async function runAutofill(){
+    if(afRunning)return;
+    if(conflict){showToast("Sort out the “changed elsewhere” banner first");return}
+    if(loadingRef.current){showToast("Still loading this OM — try again in a moment");return}
+    const files=afFiles.slice();const userNotes=afNotes.trim();
+    if(!files.length&&!userNotes){setAfError("Add photos, documents or notes first.");return}
+    const token=sessionRef.current;const live=()=>sessionRef.current===token;
+    const imgs=files.filter(afIsImage);const others=files.filter(f=>!afIsImage(f));
+    const docs=others.filter(afIsReadableDoc);const unreadable=others.filter(f=>!afIsReadableDoc(f));
+    const photoFiles=imgs.filter(f=>!AF_DOC_NAME.test(f.name)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    const docImgs=imgs.filter(f=>AF_DOC_NAME.test(f.name));
+    const notes=[];if(unreadable.length)notes.push("Couldn't read "+unreadable.map(f=>f.name).join(", ")+" (use PDF, Excel, CSV or a photo). They'll still be copied to the CRM.");
+    setAfRunning(true);setAfError("");setAfOut(null);
+    setAfSteps([{key:"photos",label:"Sort the photos into the slides"},{key:"docs",label:"Read the documents and notes"},{key:"fill",label:"Fill in the form"},{key:"crm",label:"Find the CRM listing"},
+      {key:"map",label:"Pull the map"},{key:"ai",label:"Write the offering description"},{key:"save",label:"Save the draft"}].map(x=>Object.assign(x,{state:"wait",note:""})));
+    try{
+      // 1. Photos
+      let ph=[];const reroute=[];
+      if(photoFiles.length){afStep("photos","run","Reading "+photoFiles.length+" photo"+(photoFiles.length>1?"s":"")+"…");
+        for(const f of photoFiles){
+          if(afIsHeic(f)){notes.push(f.name+" is a HEIC photo. Convert it to JPG to use it in the OM (it's still copied to the CRM).");continue}
+          try{const d=await shrinkImage(await fileToDataURL(f));await loadImg(d);ph.push({i:ph.length,file:f,name:f.name,data:d})}catch(e){notes.push("Couldn't read the photo "+f.name)}
+          if(!live())return}
+        let cls=null;const nCls=Math.min(ph.length,40);
+        if(nCls){afStep("photos","run","Picking the cover, page 2 and divider shots…");
+          try{const payload=[];for(let k=0;k<nCls;k++)payload.push({i:k,name:ph[k].name,mediaType:"image/jpeg",data:await makeThumb(ph[k].data,640)});
+            const r=await sbInvoke("om-ai",{action:"classify_photos",photos:payload});cls=r.data||null}
+          catch(e){notes.push("Photo sorting didn't work ("+e.message+"), so photos went in file-name order. Check the cover, page 2 and divider on Step 3.")}}
+        if(!live())return;
+        const kinds={},qual={};((cls&&cls.photos)||[]).forEach(p=>{kinds[Number(p.i)]=String(p.kind||"other");qual[Number(p.i)]=omNum(p.quality)});
+        ph.forEach(p=>{p.kind=kinds[p.i]||(cls?(p.i<nCls?"other":"unsorted"):(p.i<3?"exterior_front":"unsorted"));p.q=qual[p.i]||0});
+        ph.filter(p=>p.kind==="document").forEach(p=>reroute.push(p));ph=ph.filter(p=>p.kind!=="document");
+        const isExt=p=>/^exterior/.test(p.kind);const used=new Set();
+        const best=fn=>ph.filter(p=>fn(p)&&!used.has(p)).sort((a,b)=>b.q-a.q)[0]||null;
+        const pick=(pref,fn)=>{let p=(pref!==null&&pref!==undefined)?ph.find(x=>x.i===Number(pref)):null;if(p&&(!isExt(p)||used.has(p)))p=null;if(!p)p=best(fn)||best(isExt);if(p)used.add(p);return p};
+        const coverP=pick(cls&&cls.cover,p=>p.kind==="exterior_front");
+        const heroP=pick(cls&&cls.hero,p=>p.kind==="exterior_front"||p.kind==="exterior_side");
+        const divP=pick(cls&&cls.divider,p=>p.kind==="exterior_rear"||p.kind==="exterior_side");
+        const aerialP=best(p=>p.kind==="aerial");if(aerialP)used.add(aerialP);
+        const floodP=best(p=>p.kind==="map"&&/flood/i.test(p.name));if(floodP)used.add(floodP);
+        const rank={interior:0,amenity:1,unsorted:2,exterior_front:3,exterior_side:3,exterior_rear:3,aerial:4,other:5};
+        const pool=ph.filter(p=>!used.has(p)&&rank[p.kind]!==undefined).sort((a,b)=>(rank[a.kind]-rank[b.kind])||(a.i-b.i));
+        const placed=[];
+        if(coverP&&!coverPhoto){setCoverPhoto(coverP.data);placed.push("cover")}
+        if(heroP&&!heroPhoto){setHeroPhoto(heroP.data);placed.push("page 2")}
+        if(divP&&!dividerPhoto){setDividerPhoto(divP.data);placed.push("divider")}
+        if(aerialP&&!aerialPhoto){setAerialPhoto(aerialP.data);setIncludeAerial(true);placed.push("aerial page")}
+        if(floodP&&!floodMapPhoto){setFloodMapPhoto(floodP.data);setIncludeFloodMap(true);placed.push("flood map page")}
+        const room=Math.max(0,MAX_GRID-gridPhotos.length);const add=pool.slice(0,room);
+        if(add.length){setGridPhotos(prev=>prev.concat(add.map(p=>p.data)).slice(0,MAX_GRID));placed.push(add.length+" on the photo pages")}
+        if(pool.length>room)notes.push((pool.length-room)+" photo"+(pool.length-room>1?"s":"")+" didn't fit the 5 photo pages (they're still copied to the CRM).");
+        if(!coverP)notes.push("No exterior shot was found for the cover. Add one on Step 3.");
+        afStep("photos","done",placed.length?"Placed: "+placed.join(", "):"Photo slots were already filled");
+      } else afStep("photos","skip","No photos uploaded");
+      // 2. Documents + notes
+      const bin=[];let text=userNotes?"Agent notes:\n"+userNotes:"";let bytes=0;const skipped=[];
+      const pushBin=(name,mediaType,data)=>{if(bin.length>=6||bytes+data.length>18e6){skipped.push(name);return}bytes+=data.length;bin.push({name,mediaType,data})};
+      for(const f of docs){const n=f.name.toLowerCase();
+        try{if(/\.(xlsx|xlsm|xls|ods)$/.test(n))text+="\n\nFile: "+f.name+"\n"+(await spreadsheetToText(f)).slice(0,30000);
+          else if(/\.(csv|tsv|txt|md)$/.test(n)||/^text\//.test(f.type||""))text+="\n\nFile: "+f.name+"\n"+(await fileToText(f)).slice(0,30000);
+          else pushBin(f.name,"application/pdf",(await fileToDataURL(f)).split(",")[1])}
+        catch(e){notes.push("Couldn't read "+f.name+": "+e.message)}
+        if(!live())return}
+      for(const f of docImgs){if(afIsHeic(f)){notes.push(f.name+" is HEIC. Convert it to JPG or PDF so it can be read.");continue}
+        try{const d=await shrinkImage(await fileToDataURL(f));const mt=dataUrlType(d);if(/^image\/(png|jpeg|gif|webp)$/.test(mt))pushBin(f.name,mt,d.split(",")[1]);else notes.push("Couldn't read "+f.name)}catch(e){notes.push("Couldn't read "+f.name)}}
+      for(const p of reroute){const mt=dataUrlType(p.data);if(/^image\/(png|jpeg|gif|webp)$/.test(mt))pushBin(p.name,mt,p.data.split(",")[1])}
+      let x=null;
+      if(bin.length||text.trim()){afStep("docs","run","Reading "+[docs.length+docImgs.length+reroute.length?(docs.length+docImgs.length+reroute.length)+" document"+(docs.length+docImgs.length+reroute.length>1?"s":""):"",userNotes?"your notes":""].filter(Boolean).join(" and ")+"…");
+        try{const r=await sbInvoke("om-ai",{action:"extract_financials",files:bin,text,context:{address:street||null,units:unitsHint||null,askingPrice:askingPrice||null,gbaSf:gbaSf||null}});x=r.data||{}}
+        catch(e){afStep("docs","err",e.message);notes.push("Reading the documents failed: "+e.message+". You can retry, or use the import on Step 6.")}
+        if(!live())return;
+        if(x){const rr=Array.isArray(x.rentRoll)?x.rentRoll.length:0;const ex=Array.isArray(x.expenses)?x.expenses.length:0;
+          afStep("docs","done",[rr?"rent roll ("+rr+" units)":"",ex?ex+" expense lines":"",(x.marketRentSupport&&x.marketRentSupport.rows&&x.marketRentSupport.rows.length)?"market rents":"",x.property&&x.property.street?"property facts":""].filter(Boolean).join(", ")||"Nothing usable found")}
+        if(skipped.length)notes.push("Only 6 PDFs or screenshots are read per run, so these were skipped: "+skipped.join(", ")+". Read them with the import on Step 6.");
+      } else afStep("docs","skip","No documents or notes");
+      // 3. Fill the form (fields still empty only; tables replaced when the documents have them)
+      afStep("fill","run");
+      if(x){setFinUndo(finSnapshot());applyExtraction(x);(Array.isArray(x.notes)?x.notes:[]).forEach(n=>n&&notes.push(String(n)))}
+      const P=(x&&x.property)||{};
+      const hl=(x&&Array.isArray(x.highlights))?x.highlights.map(h=>String(h||"").trim()).filter(Boolean):[];
+      if(!aiPrompt.trim()){const pr=[hl.length?hl.map(h=>h.replace(/[.\s]+$/,"")).join(". ")+".":"",userNotes].filter(Boolean).join("\n\n");if(pr)setAiPrompt(pr)}
+      afStep("fill",x?"done":"skip",x?"Review each step before publishing":"Nothing to fill from documents");
+      // 4. CRM listing
+      const st=street.trim()||expandStreet(String(P.street||"").trim());let match=null;
+      if(importedLegacyId)afStep("crm","done","Already linked to "+(((crmListings.find(l=>l.legacy_id===importedLegacyId)||{}).name)||importedLegacyId));
+      else if(!st)afStep("crm","skip","No street address found — add it on this step");
+      else{afStep("crm","run");match=await findCrmMatch(st);if(!live())return;
+        if(match){linkFromMatch(match);afStep("crm","done","Linked to "+(match.name||match.address))}
+        else afStep("crm","ask","Not in the CRM yet — see below")}
+      setAfOut({notes,match,proposal:!match&&!importedLegacyId&&!!st,docNames:reroute.map(p=>p.name),propType:String(P.propertyType||"")});
+      setAfStage({token,stage:"post"});
+    }catch(e){console.error(e);if(live()){setAfError("Autofill stopped: "+(e.message||e));setAfRunning(false)}}
+  }
+  // Runs after React applied the filled-in fields, so the map, AI text and save see the new values.
+  useEffect(()=>{const st=afStage;if(!st||st.token!==sessionRef.current)return;if(st.stage==="post")afPost(st.token);else if(st.stage==="save")afSave(st.token)},[afStage]);
+  async function afPost(token){
+    const live=()=>sessionRef.current===token;
+    try{
+      if(mapPhoto)afStep("map","done","Kept the existing map");
+      else if(street.trim()&&city.trim()){afStep("map","run");const m=await generateMap(mapZoom);if(!live())return;afStep("map",m?"done":"err",m?"":"The map didn't load. Retry on Step 3.")}
+      else afStep("map","skip","Needs the street and city");
+      if(offeringText.trim())afStep("ai","done","Kept your existing text");
+      else if(street.trim()){afStep("ai","run");const ok=await generateAIText();if(!live())return;afStep("ai",ok?"done":"err",ok?"Edit it on Step 4":"Didn't work. Retry on Step 4.")}
+      else afStep("ai","skip","Needs the street address");
+    }catch(e){console.error(e)}
+    if(live())setAfStage({token,stage:"save"});
+  }
+  async function afSave(token){
+    const live=()=>sessionRef.current===token;
+    afStep("save","run");const id=street.trim()||propertyName.trim()||importedLegacyId?await saveDraft({silent:true,wait:true}):null;if(!live())return;
+    afStep("save",id?"done":"err",id?"In the sidebar under In progress":"Not saved yet. Add the address, then use Save progress.");
+    setAfRunning(false);if(id)showToast("Autofill done — review each step before publishing");
+  }
+  // Copy the uploads into the listing's CRM file share: photos -> Pictures, documents -> file share only (never the deal room).
+  async function copyFilesToCrm(legacy){
+    const files=afFiles.slice();if(!legacy||!files.length)return;
+    const docNames=(afOut&&afOut.docNames)||[];
+    setAfOut(o=>Object.assign({},o,{copying:true,copyErr:"",copiedN:0}));
+    let done=0;const errs=[];const who=myName||nameFromEmail(user&&user.email);
+    for(let k=0;k<files.length;k+=3){await Promise.all(files.slice(k,k+3).map(async f=>{
+      const key=legacy+"|"+f.name+"|"+f.size;if(afCopiedRef.current.has(key)){done++;return}
+      const isPhoto=afIsPhotoFile(f,docNames);const fid=newFileId();const path=crmSafePath(fid,f.name);
+      try{await crmUpload(path,f);
+        await upsertCrmFile(fid,false,{name:f.name,size:f.size,mime_type:f.type||"application/octet-stream",linked_listing:legacy,storage_path:path,folder_path:isPhoto?"Pictures":"",category:isPhoto?"general":"financial",in_deal_room:isPhoto?null:false,uploaded_by:who,notes:"Uploaded through OM Generator autofill"});
+        afCopiedRef.current.add(key);done++;setAfOut(o=>Object.assign({},o,{copiedN:done}))}
+      catch(e){errs.push(f.name+": "+(e.message||e))}}))}
+    setAfOut(o=>Object.assign({},o,{copying:false,copied:!errs.length,copiedTo:legacy,copiedN:done,copyErr:errs.join("; ")}));
+    fetchCrmPhotos(legacy);
+    showToast(errs.length?"Some files didn't copy — retry from the autofill card":"Files copied to the CRM file share");
+  }
+  async function createCrmListing(){
+    const token=sessionRef.current;const live=()=>sessionRef.current===token;
+    const st=street.trim();if(!st){showToast("Add the street address first");return}
+    setAfOut(o=>Object.assign({},o,{creating:true,createErr:""}));
+    try{
+      const dup=await findCrmMatch(st);
+      if(dup){if(!live())return;linkFromMatch(dup);setAfOut(o=>Object.assign({},o,{creating:false,proposal:false,match:dup}));afStep("crm","done","Linked to "+(dup.name||dup.address));showToast("It's already in the CRM — linked to "+(dup.name||dup.address));setAfStage({token,stage:"save"});return}
+      const me=myName||nameFromEmail(user&&user.email);
+      const team=Array.from(new Set([me].concat(selectedAgents.map(id=>{const a=BW_AGENTS.find(z=>z.id===id);return a?a.name.split(" ")[0]:null})).filter(Boolean)));
+      const units=fin.rows.length||omNum(unitsHint)||0;const t=(afOut&&afOut.propType)||"Multifamily";
+      const type=/mixed/i.test(t)?"Mixed-Use":/commercial/i.test(t)?"Commercial":/single/i.test(t)?"Single Family":"Multifamily";
+      const flood=((summaryExtra.find(r=>/flood/i.test(r.label||""))||{}).value)||null;
+      const r1=v=>Math.round(v*10)/10;
+      const crmFin={rentRoll:fin.rows.map(r=>({unit:r.unit,type:r.type,size:"",currentRent:r.actual||0,marketRent:r.proforma||0})),
+        opStmt:{grossRentCurrent:Math.round(fin.cur.gpr),grossRentProforma:Math.round(fin.pf.gpr),vacancyPctCurrent:omNum(vacancyPct),vacancyPctProforma:omNum(vacancyPct),
+          expenses:fin.cur.lines.map((l,k)=>({label:l.label,current:Math.round(l.amount),proforma:Math.round((fin.pf.lines[k]||{}).amount||0),notes:""}))}};
+      const row={legacy_id:"listing_"+Math.random().toString(36).slice(2,8),name:st,address:st,city:[city.trim(),stateAbbr].filter(Boolean).join(", "),zip:zip||"",
+        units,residential_units:/commercial/i.test(type)?0:units,asking_price:omNum(askingPrice),price_per_unit:isFinite(fin.pricePerUnit)?Math.round(fin.pricePerUnit):0,
+        cap_rate:isFinite(fin.inPlaceCap)?r1(fin.inPlaceCap*100):0,occupancy:isFinite(fin.occupancy)?Math.round(fin.occupancy*100):0,
+        proforma_cap_rate:isFinite(fin.proformaCap)?r1(fin.proformaCap*100):null,gba_sf:omNum(gbaSf)||null,price_per_sf:isFinite(fin.pricePerSf)?Math.round(fin.pricePerSf*100)/100:null,
+        lot_size:lotDescription.trim()||(omNum(siteSf)?omNum(siteSf).toLocaleString()+" sf":null),flood_zone:flood,
+        status:"Active",market_status:"Off Market",listing_mode:"sale",type,property_class:((type==="Multifamily"&&units>0&&units<=4)||type==="Single Family")?"Residential":"Commercial",
+        assigned_to:team,shared_with:[],inquiries:[],financials:JSON.stringify(crmFin),notes:"Created from the OM Generator (autofill)"};
+      const r=await sbFetch("/rest/v1/listings",{method:"POST",headers:{"Prefer":"return=representation"},body:JSON.stringify([row])});
+      const L=r&&r[0];if(!L)throw new Error("the CRM didn't return the new listing");
+      if(!live()){showToast("CRM listing created; link it from the OM you were on");return}
+      setSelectedListingId(L.id);setImportedLegacyId(L.legacy_id);setCrmListings(prev=>[L].concat(prev.filter(z=>z.legacy_id!==L.legacy_id)));
+      setAfOut(o=>Object.assign({},o,{creating:false,proposal:false,created:{legacy_id:L.legacy_id,name:L.name}}));
+      afStep("crm","done","Created "+L.name+" (Active · Off Market)");
+      if(afFiles.length)await copyFilesToCrm(L.legacy_id);
+      if(live())setAfStage({token,stage:"save"});
+    }catch(e){console.error(e);setAfOut(o=>Object.assign({},o,{creating:false,createErr:e.message||String(e)}))}
+  }
+  function unlinkAfMatch(){setImportedLegacyId("");setSelectedListingId("");setCrmPhotos([]);setAfOut(o=>Object.assign({},o,{match:null,proposal:!!street.trim()}));afStep("crm","ask","Not linked — create a listing below or pick one above")}
 
   // ── build the generator payload (images cropped to their slide boxes) ──
   async function buildOMData(mapOverride){
@@ -1394,6 +1635,57 @@ function App(){
       {/* STEP 1 — PROPERTY */}
       {step===1&&<div>
         <h2>Property Information</h2>
+        <div className="card af-card">
+          <div className="af-title">Autofill from files</div>
+          <div className="hint" style={{marginTop:0,marginBottom:10}}>Drop in the listing photos and the seller's documents (rent roll, T-12, tax bill, insurance, Rentometer) and any notes. The photos are sorted into the cover, page 2, divider and photo pages; the documents fill in the property facts and financials; then the map and offering description are made and the draft is saved. Fields you've already filled are left alone. If the property isn't in the CRM yet, you'll get a one-click option to add it.</div>
+          <div className={"af-drop"+(afDrag?" over":"")} onDragEnter={e=>{e.preventDefault();afDragRef.current++;setAfDrag(true)}} onDragLeave={()=>{afDragRef.current=Math.max(0,afDragRef.current-1);if(!afDragRef.current)setAfDrag(false)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();afDragRef.current=0;setAfDrag(false);addAfFiles(e.dataTransfer.files)}}>
+            <input type="file" multiple accept="image/*,.heic,.pdf,.xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.md" disabled={afRunning} onChange={e=>{addAfFiles(e.target.files);e.target.value=""}}/>
+            <b>Drop photos and documents here</b> or click to choose
+            <div className="hint">JPG/PNG photos · PDF, Excel, CSV or screenshots of documents</div>
+          </div>
+          {afFiles.length>0&&(()=>{const docNames=(afOut&&afOut.docNames)||[];const photos=afFiles.filter(f=>afIsPhotoFile(f,docNames));const docs=afFiles.filter(f=>!afIsPhotoFile(f,docNames));
+            return <div className="af-files">
+              {photos.length>0&&<span className="chip af-photos">{photos.length} photo{photos.length>1?"s":""}<button disabled={afRunning} title="Remove the photos" onClick={()=>setAfFiles(afFiles.filter(f=>!afIsPhotoFile(f,docNames)))}>×</button></span>}
+              {docs.map(f=><span key={f.name+f.size} className="chip">{f.name}<button disabled={afRunning} onClick={()=>setAfFiles(afFiles.filter(z=>z!==f))}>×</button></span>)}
+              {!afRunning&&<button className="link-btn" onClick={()=>{setAfFiles([]);setAfOut(null);setAfSteps([])}}>Clear all</button>}
+            </div>})()}
+          <textarea className="af-notes" rows={3} value={afNotes} onChange={e=>setAfNotes(e.target.value)} disabled={afRunning} placeholder="Optional notes, e.g. “Asking $899k. 1919 corner building in the Tremé, renovated 2019, HDLC district, unit 4 vacant and ready to lease.”"/>
+          <div style={{display:"flex",gap:10,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
+            <button className="btn-red" onClick={runAutofill} disabled={afRunning||(!afFiles.length&&!afNotes.trim())||loadingOM||!!conflict}>{afRunning?<><span className="spinner" style={{marginRight:6}}/>Autofilling…</>:"✦ Autofill the OM"}</button>
+            {afRunning&&<span className="hint" style={{margin:0}}>This takes about a minute. Stay on this OM until it finishes.</span>}
+          </div>
+          {afError&&<div className="err">{afError}</div>}
+          {afSteps.length>0&&<ul className="af-steps">{afSteps.map(st=><li key={st.key} className={"af-st "+st.state}>
+            <span className="af-ic">{st.state==="run"?<span className="spinner"/>:st.state==="done"?"✓":st.state==="err"?"!":st.state==="skip"?"–":st.state==="ask"?"?":"○"}</span>
+            <span><b>{st.label}</b>{st.note?<span className="af-note"> — {st.note}</span>:null}</span></li>)}</ul>}
+          {afOut&&afOut.match&&<div className="result-box">
+            <b>Linked to the CRM listing “{afOut.match.name||afOut.match.address}”</b>{afOut.match.status?" ("+afOut.match.status+(afOut.match.market_status?" · "+afOut.match.market_status:"")+")":""}. Publishing will file the OM under it.
+            <div style={{marginTop:8,display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+              {afFiles.length>0&&!(afOut.copied&&afOut.copiedTo===afOut.match.legacy_id)&&<button className="btn-dark btn-sm" disabled={afOut.copying||afRunning} onClick={()=>copyFilesToCrm(afOut.match.legacy_id)}>{afOut.copying?"Copying "+(afOut.copiedN||0)+" of "+afFiles.length+"…":"Copy the "+afFiles.length+" uploaded file"+(afFiles.length>1?"s":"")+" to this listing's file share"}</button>}
+              {afOut.copied&&afOut.copiedTo===afOut.match.legacy_id&&<span>✓ {afOut.copiedN} file{afOut.copiedN>1?"s":""} copied (photos in Pictures; documents kept out of the deal room).</span>}
+              <button className="link-btn" disabled={afRunning} onClick={unlinkAfMatch}>Not this property</button>
+            </div></div>}
+          {afOut&&afOut.proposal&&!importedLegacyId&&<div className="af-propose">
+            <b>{street.trim()||"This property"} isn't in the CRM yet.</b> Add it as a listing?
+            <div className="af-prop-grid">
+              <span>Status</span><b>Active · Off Market</b>
+              <span>Assigned to</span><b>{Array.from(new Set([myName||nameFromEmail(user.email)].concat(selectedAgents.map(id=>{const a=BW_AGENTS.find(z=>z.id===id);return a?a.name.split(" ")[0]:null})).filter(Boolean))).join(", ")}</b>
+              <span>Units</span><b>{fin.rows.length||unitsHint||"—"}</b>
+              <span>Asking price</span><b>{omHas(askingPrice)?money(askingPrice):"—"}</b>
+              {afFiles.length>0&&<><span>Files</span><b>{afFiles.length} file{afFiles.length>1?"s":""} will be copied to its file share (photos → Pictures; documents stay out of the deal room)</b></>}
+            </div>
+            <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
+              <button className="btn-red btn-sm" disabled={afOut.creating||afRunning||!street.trim()} onClick={createCrmListing}>{afOut.creating?<><span className="spinner" style={{marginRight:6}}/>{afOut.copying?"Copying files "+(afOut.copiedN||0)+" of "+afFiles.length+"…":"Creating…"}</>:"Create CRM listing"}</button>
+              <button className="btn-dark btn-sm" disabled={afOut.creating} onClick={()=>setAfOut(o=>Object.assign({},o,{proposal:false}))}>Not now</button>
+            </div>
+            {afOut.createErr&&<div className="err">Couldn't create the listing: {afOut.createErr}</div>}
+          </div>}
+          {afOut&&afOut.created&&<div className="result-box"><b>Created “{afOut.created.name}” in the CRM</b> (Active · Off Market) and linked this OM to it.{afOut.copiedTo===afOut.created.legacy_id?(afOut.copied?" "+afOut.copiedN+" files copied to its file share.":""):""}
+            {afOut.copyErr&&afOut.copiedTo===afOut.created.legacy_id&&<div style={{marginTop:6}}><button className="btn-dark btn-sm" disabled={afOut.copying} onClick={()=>copyFilesToCrm(afOut.created.legacy_id)}>{afOut.copying?"Copying…":"Retry the files that didn't copy"}</button></div>}</div>}
+          {afOut&&afOut.copyErr&&<div className="err">Some files didn't copy: {afOut.copyErr}</div>}
+          {afOut&&afOut.notes&&afOut.notes.length>0&&<div className="warn-box"><b>Double-check:</b><ul>{afOut.notes.map((n,k)=><li key={k}>{n}</li>)}</ul></div>}
+          {!afRunning&&finUndo&&afOut&&<div style={{marginTop:8}}><button className="link-btn" onClick={undoFin}>Undo the financials it filled in</button></div>}
+        </div>
         <div className="card" style={{marginBottom:20,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
           <div style={{flex:1,minWidth:250}}><label>Import from CRM</label><SearchableListingInput listings={crmListings} value={selectedListingId} onChange={handleImportListing} loading={loadingListings}/></div>
           <div style={{display:"flex",gap:8,paddingTop:16}}><button className="btn-dark btn-sm" onClick={fetchListings} disabled={loadingListings}>{loadingListings?"Refreshing...":"↻ Refresh"}</button><button className="btn-dark btn-sm" onClick={handleStartFresh}>✦ Start Fresh</button></div>
