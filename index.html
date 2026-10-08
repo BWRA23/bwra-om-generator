@@ -1345,7 +1345,13 @@ function App(){
     if(hasRR)setRentRoll(x.rentRoll.map((u,i)=>{const vac=/vac/i.test(u.status||"")||!omNum(u.currentRent);return{unit:String(u.unit||i+1),type:omTypeLabel(u.type||""),status:vac?"Vacant":"Occupied",currentRent:vac?"":String(omNum(u.currentRent)),modeledRent:omHas(u.modeledRent)?String(omNum(u.modeledRent)):(vac?"":String(omNum(u.currentRent))),proformaRent:omHas(u.proformaRent)?String(omNum(u.proformaRent)):""}}));
     if(omHas(x.vacancyPct))setVacancyPct(String(omNum(x.vacancyPct)));
     if(omHas(x.otherIncome))setOtherIncome(String(omNum(x.otherIncome)));
-    if(Array.isArray(x.expenses)&&x.expenses.length)setExpenses(x.expenses.map(e=>({label:e.label||"",basis:["fixed","pctEGI","perSF","perUnit"].includes(e.basis)?e.basis:"fixed",amount:omHas(e.amount)?String(omNum(e.amount)):""})));
+    if(Array.isArray(x.expenses)&&x.expenses.length){
+      const got=x.expenses.map(e=>({label:e.label||"",basis:["fixed","pctEGI","perSF","perUnit"].includes(e.basis)?e.basis:"fixed",amount:omHas(e.amount)?String(omNum(e.amount)):""}));
+      // Documents often list only taxes/insurance/utilities. Keep the standard underwriting lines
+      // (repairs & maintenance, management fee) the seller's papers leave out, so NOI isn't overstated.
+      const keep=[/repair|maint/i,/manage/i].map(re=>got.some(e=>re.test(e.label))?null:(expenses.find(e=>re.test(e.label||""))||DEFAULT_EXPENSES().find(e=>re.test(e.label)))).filter(Boolean);
+      setExpenses(got.concat(keep.map(e=>Object.assign({},e))));
+    }
     if(x.marketRentSupport&&Array.isArray(x.marketRentSupport.rows)&&x.marketRentSupport.rows.length)setMarket({source:x.marketRentSupport.source||"",rows:x.marketRentSupport.rows.map(r=>({unitType:r.unitType||"",sample:r.sample??"",p25:r.p25??"",median:r.median??"",avg:r.avg??"",p75:r.p75??"",applied:r.applied??""}))});
     if(x.rentRollDate)setRentRollDate(String(x.rentRollDate));
     const P=x.property||{};const str=v=>v===null||v===undefined?"":String(v).trim();
