@@ -762,7 +762,8 @@ function heicJob(msg,fn){__heicActive++;const p=__heicChain.then(()=>{heicStatus
 // Some ".heic" files are really JPEG/PNG (re-saved by an app); those just need relabeling, not converting.
 async function sniffImageType(blob){try{const b=new Uint8Array(await blob.slice(0,12).arrayBuffer());if(b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF)return"image/jpeg";if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47)return"image/png";if(b[0]===0x52&&b[1]===0x49&&b[2]===0x46&&b[3]===0x46&&b[8]===0x57&&b[9]===0x45)return"image/webp"}catch(e){}return""}
 async function heicBlobToJpeg(blob,msg){const real=await sniffImageType(blob);if(real)return real===blob.type?blob:new Blob([blob],{type:real});
-  return heicJob(msg||"Converting iPhone photo to JPG…",async()=>{const H=await loadHeicTo();const out=await H({blob,type:"image/jpeg",quality:0.9});if(!out||!out.size)throw new Error("empty result");return out})}
+  return heicJob(msg||"Converting iPhone photo to JPG…",()=>withTimeout((async()=>{const H=await loadHeicTo();const out=await H({blob,type:"image/jpeg",quality:0.9});if(!out||!out.size)throw new Error("empty result");return out})(),90000))}
+function withTimeout(p,ms){let t;return Promise.race([p,new Promise((_,rej)=>{t=setTimeout(()=>rej(new Error("timed out")),ms)})]).finally(()=>clearTimeout(t))}
 // Replace every HEIC in a list with a JPG File of the same name. Files that fail stay as they were and are listed in `failed`.
 async function convertHeicFiles(list){
   const arr=Array.from(list||[]);const total=arr.filter(isHeicFile).length;if(!total)return{files:arr,failed:[],converted:0};
@@ -819,17 +820,19 @@ const AF_TYPES=new Set(["street","avenue","boulevard","drive","road","lane","cou
 const AF_DIRS=new Set(["n","s","e","w","north","south","east","west"]);
 // "1039-1041 N. Marais St" -> {nums:{1039,1040,1041}, name:"marais", type:"street"}
 function addrParts(a){
-  const raw=String(a||"").toLowerCase().replace(/[.#,]/g," ").trim();const m=raw.match(/^(\d+)(?:\s*-\s*(\d+))?[a-z]?\s+(.*)$/);if(!m)return null;
-  const lo=+m[1],hi=m[2]?+m[2]:lo;const nums=new Set();if(hi>=lo&&hi-lo<=40)for(let k=lo;k<=hi;k++)nums.add(k);else nums.add(lo);
+  const raw=String(a||"").toLowerCase().replace(/\b(apt|apartment|unit|ste|suite|#)\s*[a-z0-9-]+\s*$/,"").replace(/[.#,]/g," ").trim();const m=raw.match(/^(\d+)(?:\s*-\s*(\d+))?[a-z]?\s+(.*)$/);if(!m)return null;
+  const lo=+m[1];let hi=m[2]?+m[2]:lo;if(m[2]&&hi<lo&&m[2].length<m[1].length)hi=+(m[1].slice(0,m[1].length-m[2].length)+m[2]);/* "1039-41" = 1039 to 1041 */const nums=new Set();if(hi>=lo&&hi-lo<=40)for(let k=lo;k<=hi;k++)nums.add(k);else nums.add(lo);
   let t=m[3].replace(/[^a-z0-9 ]+/g," ").split(/\s+/).filter(Boolean);
-  t=t.map((x,i)=>x==="st"?(i===t.length-1?"street":"saint"):(AF_ABBR[x]||x));
+  const FULL={n:"north",s:"south",e:"east",w:"west"};let tailDir=null;
+  if(t.length>2&&AF_DIRS.has(t[t.length-1])){tailDir=t.pop()[0]}/* "123 Main St N" */
+  t=t.map((x,i)=>x==="st"?(i===t.length-1?"street":"saint"):x==="ste"&&i<t.length-1?"sainte":(FULL[x]||AF_ABBR[x]||x));
   let type=null;if(t.length>1&&AF_TYPES.has(t[t.length-1]))type=t.pop();
-  const dirs=t.filter(x=>AF_DIRS.has(x)).map(x=>x[0]);const noDir=t.filter(x=>!AF_DIRS.has(x));let dir=null;if(noDir.length){t=noDir;dir=dirs[0]||null}
+  const dirs=t.filter(x=>AF_DIRS.has(x)).map(x=>x[0]);const noDir=t.filter(x=>!AF_DIRS.has(x));let dir=tailDir;if(noDir.length){t=noDir;dir=dirs[0]||tailDir||null}
   return t.length?{nums,name:t.join(" "),type,dir}:null}
 function addrMatches(listingAddr,street){const s=addrParts(String(street||"").split(",")[0]);if(!s)return false;
   return String(listingAddr||"").split(/,|&|\band\b|\||\//i).some(part=>{const p=addrParts(part);if(!p||p.name!==s.name)return false;
     if(p.type&&s.type&&p.type!==s.type)return false;if(p.dir&&s.dir&&p.dir!==s.dir)return false;for(const n of s.nums)if(p.nums.has(n))return true;return false})}
-function cityKey(c){return String(c||"").split(",")[0].toLowerCase().replace(/[^a-z]/g,"")}
+function cityKey(c){const k=String(c||"").split(",")[0].toLowerCase().replace(/\bst\b\.?/g,"saint").replace(/[^a-z]/g,"");return k==="nola"?"neworleans":k}
 
 // Drag-and-drop props for any card: highlights while files hover, hands the dropped files to onFiles.
 function dropProps(onFiles){return{
@@ -1187,7 +1190,7 @@ function App(){
       const warn=v.warnings.slice();if(pdfLive)warn.push("The deal room still shows your final PDF from before this change. Export a new PDF and use \u201cReplace final PDF\u201d so buyers see the update.");
       setGenErrors(warn.length?{errors:[],warnings:warn}:null);fetchOMs();
       showToast(isExisting?"Republished — the CRM copy is updated":"Published to the CRM file share and deal room");
-    }catch(e){console.error(e);setGenErrors({errors:["Publishing failed: "+(e.message||e)+". Nothing was duplicated; you can try again."],warnings:[]})}
+    }catch(e){console.error(e);if(live())setGenErrors({errors:["Publishing failed: "+(e.message||e)+". Nothing was duplicated; you can try again."],warnings:[]});else showToast("Publishing stopped: "+(e.message||e))}
     finally{setPublishing(false)}
   }
   // ── Final PDF: goes to the deal room in place of the PowerPoint ──
@@ -1338,11 +1341,12 @@ function App(){
       showToast("Photo added");}catch(e){console.error(e);showToast("Couldn't load that photo")}
   }
   async function autoAssignCrmStarter(cp){
+    const tk=sessionRef.current;const live=()=>sessionRef.current===tk;const put=fn=>d=>{if(live())fn(d)};
     try{const nonAerial=cp.filter(p=>!/aerial|flood|map/i.test(p.name));const pool=nonAerial.length?nonAerial:cp;
-      if(pool[0])crmFileToDataURL(pool[0].storage_path).then(setCoverPhoto).catch(()=>{});
-      if(pool[1])crmFileToDataURL(pool[1].storage_path).then(setHeroPhoto).catch(()=>{});
-      if(pool[2])crmFileToDataURL(pool[2].storage_path).then(setDividerPhoto).catch(()=>{});
-      const rest=pool.slice(3,3+MAX_GRID);const loaded=await Promise.all(rest.map(p=>crmFileToDataURL(p.storage_path).catch(()=>null)));setGridPhotos(loaded.filter(Boolean));
+      if(pool[0])crmFileToDataURL(pool[0].storage_path).then(put(setCoverPhoto)).catch(()=>{});
+      if(pool[1])crmFileToDataURL(pool[1].storage_path).then(put(setHeroPhoto)).catch(()=>{});
+      if(pool[2])crmFileToDataURL(pool[2].storage_path).then(put(setDividerPhoto)).catch(()=>{});
+      const rest=pool.slice(3,3+MAX_GRID);const loaded=await Promise.all(rest.map(p=>crmFileToDataURL(p.storage_path).catch(()=>null)));if(!live())return;setGridPhotos(loaded.filter(Boolean));
       showToast("CRM photos placed — check the cover, page 2 and divider picks on Step 3");
     }catch(e){console.error(e)}
   }
@@ -1358,7 +1362,7 @@ function App(){
   function mapAddress(){return [street.trim(),[city.trim(),[stateAbbr,zip].filter(Boolean).join(" ")].filter(Boolean).join(", ")].filter(Boolean).join(", ")}
   // live (optional): returns false once the user has switched to another OM, so a slow reply never lands in the wrong form.
   async function generateMap(zoom,live){
-    if(typeof live!=="function")live=null;   // buttons call this with a click event
+    if(typeof live!=="function"){const tk=sessionRef.current;live=()=>sessionRef.current===tk}   // buttons pass a click event
     const z=zoom||mapZoom;setMapError("");if(!street.trim()||!city.trim()){setMapError("Enter the street address and city on Step 1 first.");return null}
     setMapLoading(true);
     try{const r=await sbInvoke("om-static-map",{address:mapAddress(),zoom:z});if(live&&!live())return null;setMapPhoto(r.dataUrl);setMapZoom(z);return r.dataUrl}
@@ -1375,7 +1379,7 @@ function App(){
       proformaRentMonthly:fin.pfMo||null,rentUpsidePct:(fin.inPlaceMo&&fin.pfMo>fin.inPlaceMo)?Math.round((fin.pfMo-fin.inPlaceMo)/fin.inPlaceMo*1000)/10:null};
   }
   async function generateAIText(live){
-    if(typeof live!=="function")live=null;   // the Write with AI button passes a click event
+    if(typeof live!=="function"){const tk=sessionRef.current;live=()=>sessionRef.current===tk}   // the Write with AI button passes a click event
     setAiLoading(true);setAiError("");setAiWarnings([]);
     try{const r=await sbInvoke("om-ai",{action:"offering",facts:buildFacts(),notes:aiPrompt});
       if(live&&!live()){setAiLoading(false);return false}
@@ -1415,7 +1419,8 @@ function App(){
       const got=x.expenses.map(e=>({label:e.label||"",basis:["fixed","pctEGI","perSF","perUnit"].includes(e.basis)?e.basis:"fixed",amount:omHas(e.amount)?String(omNum(e.amount)):""}));
       // Documents often list only taxes/insurance/utilities. Keep the standard underwriting lines
       // (repairs & maintenance, management fee) the seller's papers leave out, so NOI isn't overstated.
-      const keep=[/repair|r\s*&\s*m\b|^maintenance/i,/manag|mgmt|mgt\b/i].map(re=>got.some(e=>re.test(e.label))?null:(expenses.find(e=>re.test(e.label||""))||DEFAULT_EXPENSES().find(e=>re.test(e.label)))).filter(Boolean);
+      const isRM=l=>/repair|r\s*&\s*m\b|\bmaint/i.test(l)&&!/lawn|pool|landscap|grounds|pest/i.test(l),isMgmt=l=>/manag|mgmt|mgt\b/i.test(l)&&!/waste|trash|garbage/i.test(l);
+      const keep=[isRM,isMgmt].map(fn=>({test:fn})).map(re=>got.some(e=>re.test(e.label))?null:(expenses.find(e=>re.test(e.label||""))||DEFAULT_EXPENSES().find(e=>re.test(e.label)))).filter(Boolean);
       setExpenses(got.concat(keep.map(e=>Object.assign({},e))));
     }
     if(x.marketRentSupport&&Array.isArray(x.marketRentSupport.rows)&&x.marketRentSupport.rows.length)setMarket({source:x.marketRentSupport.source||"",rows:x.marketRentSupport.rows.map(r=>({unitType:r.unitType||"",sample:r.sample??"",p25:r.p25??"",median:r.median??"",avg:r.avg??"",p75:r.p75??"",applied:r.applied??""}))});
@@ -1460,7 +1465,7 @@ function App(){
     if(!Array.isArray(rows))rows=crmListings;
     const myCity=cityKey(ctx&&ctx.city),myZip=String((ctx&&ctx.zip)||"").slice(0,5);
     const placeOk=l=>{const lc=cityKey(l.city),lz=String(l.zip||"").slice(0,5)||((String(l.city||"").match(/\b\d{5}\b/)||[])[0]||"");
-      if(myZip&&lz&&myZip!==lz)return false;if(myCity&&lc&&myCity!==lc)return false;return true};
+      if(myZip&&lz)return myZip===lz;if(myCity&&lc&&myCity!==lc)return false;return true};
     const hits=rows.filter(l=>(addrMatches(l.address,st)||addrMatches(l.name,st))&&placeOk(l));
     hits.sort((a,b)=>(/closed|dead|withdrawn|expired/i.test(a.status||"")?1:0)-(/closed|dead|withdrawn|expired/i.test(b.status||"")?1:0));
     return hits[0]||null;
