@@ -169,6 +169,8 @@ table.fin-table input:disabled,input:disabled{background:var(--surface2);color:v
 .af-prop-grid{display:grid;grid-template-columns:110px 1fr;gap:4px 10px;margin-top:8px}
 .af-prop-grid span{color:#92400e}
 .drop-over{outline:2px dashed var(--red);outline-offset:-4px;background:#fff5f5 !important}
+.heic-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:1000;display:flex;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.heic-bar .spinner{border-color:rgba(255,255,255,.25);border-top-color:#fff}
 </style>
 </head>
 <body>
@@ -741,11 +743,39 @@ async function uploadPhoto(dataUrl,path){
   if(!r.ok)throw new Error("Photo upload failed ("+r.status+")");
   return SB_URL+"/storage/v1/object/public/om-photos/"+path;
 }
+// ── iPhone photos (HEIC/HEIF) -> JPG ──
+// Chrome can't decode HEIC, so iPhone photos are converted to JPG the moment they're added.
+// The converter (libheif compiled to WebAssembly, ~3 MB) only loads the first time a HEIC shows up.
+const HEIC_SRC="https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/iife/heic-to.js";
+const HEIC_SRI="sha384-cVm8gaWQ5+URpoh6ACKXpm8TuyoHkfIDDBkxvDoUdIZ18w8nV5en0lVQvWMwO/6S";
+let __heicLoading=null;
+function loadHeicTo(){if(window.HeicTo)return Promise.resolve(window.HeicTo);if(__heicLoading)return __heicLoading;
+  __heicLoading=new Promise((res,rej)=>{const sc=document.createElement("script");sc.src=HEIC_SRC;sc.integrity=HEIC_SRI;sc.crossOrigin="anonymous";
+    sc.onload=()=>window.HeicTo?res(window.HeicTo):rej(new Error("The iPhone photo converter didn't start"));
+    sc.onerror=()=>{__heicLoading=null;sc.remove();rej(new Error("Couldn't load the iPhone photo converter (check your connection)"))};document.head.appendChild(sc)});
+  return __heicLoading}
+function isHeicFile(f){return !!f&&(/hei[cf]/i.test(f.type||"")||/\.(heic|heif)$/i.test(f.name||""))}
+function heicStatus(text){try{window.dispatchEvent(new CustomEvent("heic-status",{detail:text||""}))}catch(e){}}
+async function heicBlobToJpeg(blob){const H=await loadHeicTo();const out=await H({blob,type:"image/jpeg",quality:0.9});if(!out||!out.size)throw new Error("empty result");return out}
+// Replace every HEIC in a list with a JPG File of the same name. Files that fail stay as they were and are listed in `failed`.
+async function convertHeicFiles(list){
+  const arr=Array.from(list||[]);const total=arr.filter(isHeicFile).length;if(!total)return{files:arr,failed:[],converted:0};
+  const files=[];const failed=[];let n=0;
+  try{for(const f of arr){
+    if(!isHeicFile(f)){files.push(f);continue}
+    n++;heicStatus("Converting iPhone photo"+(total>1?"s "+n+" of "+total:"")+" to JPG…");
+    try{const jpg=await heicBlobToJpeg(f);files.push(new window.File([jpg],String(f.name||"photo").replace(/\.(heic|heif)$/i,"")+".jpg",{type:"image/jpeg",lastModified:f.lastModified||Date.now()}))}
+    catch(e){console.warn("HEIC convert failed:",f.name,e);failed.push(f.name);files.push(f)}}}
+  finally{heicStatus("")}
+  return{files,failed,converted:total-failed.length};
+}
 async function crmFileToDataURL(storage_path){
   const token=localStorage.getItem("sb_token");
   const r=await fetch(SB_URL+"/storage/v1/object/crm-files/"+storage_path,{headers:{"apikey":SB_KEY,"Authorization":"Bearer "+token}});
   if(!r.ok)throw new Error("CRM photo download failed ("+r.status+")");
-  const b=await r.blob();const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
+  let b=await r.blob();
+  if(/hei[cf]/i.test(b.type||"")||/\.(heic|heif)$/i.test(storage_path)){heicStatus("Converting iPhone photo to JPG…");try{b=await heicBlobToJpeg(b)}finally{heicStatus("")}}
+  const d=await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(b);});
   return await shrinkImage(d);
 }
 // Call a Supabase Edge Function with the signed-in (2FA) session.
@@ -796,10 +826,12 @@ function mergeFiles(prev,list){const seen=new Set(prev.map(f=>f.name+"|"+f.size)
 // SMALL UI PIECES
 // ════════════════════════════════════════════════════════
 function PhotoUpload({value,onChange,label,tall}){
-  const handleFile=async(e)=>{const f=e.target.files?.[0];e.target.value="";if(f){const d=await shrinkImage(await fileToDataURL(f));onChange(d)}};
+  const handleFile=async(e)=>{let f=e.target.files?.[0];e.target.value="";if(!f)return;
+    if(isHeicFile(f)){const r=await convertHeicFiles([f]);if(r.failed.length){try{window.dispatchEvent(new CustomEvent("app-toast",{detail:"Couldn't convert "+f.name+" from iPhone format. Try exporting it as a JPG."}))}catch(_){}return}f=r.files[0]}
+    const d=await shrinkImage(await fileToDataURL(f));onChange(d)};
   return <div className="photo-drop" style={{position:"relative",minHeight:tall?150:100}}>
     {value?<><img src={value}/><button onClick={(e)=>{e.stopPropagation();onChange(null)}} className="x-btn">×</button></>:<span style={{color:"var(--muted)",fontSize:12}}>{label||"Click or drop image"}</span>}
-    <input type="file" accept="image/*" onChange={handleFile}/>
+    <input type="file" accept="image/*,.heic,.heif" onChange={handleFile}/>
   </div>
 }
 function Num({value,onChange,placeholder,style,step}){return <input type="number" inputMode="decimal" step={step||"any"} value={value===null||value===undefined?"":value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} style={style}/>}
@@ -850,6 +882,8 @@ function App(){
   const[user,setUser]=useState(null);
   const[step,setStep]=useState(1);
   const[toast,setToast]=useState("");
+  const[heicMsg,setHeicMsg]=useState("");
+  useEffect(()=>{const h=e=>setHeicMsg(e.detail||"");const t=e=>showToast(e.detail||"");window.addEventListener("heic-status",h);window.addEventListener("app-toast",t);return()=>{window.removeEventListener("heic-status",h);window.removeEventListener("app-toast",t)}},[]);
   const[generating,setGenerating]=useState(false);
   const[genErrors,setGenErrors]=useState(null);
   const[crmPhotos,setCrmPhotos]=useState([]);
@@ -965,6 +999,7 @@ function App(){
   const[afError,setAfError]=useState("");
   const[afStage,setAfStage]=useState(null);    // {token, stage:"post"|"save"} — runs after React has applied the filled-in state
   const afCopiedRef=useRef(new Set());
+  const[afConverting,setAfConverting]=useState(false);
   const afDragRef=useRef(0);const[afDrag,setAfDrag]=useState(false);
 
   // ── auth bootstrap (unchanged behavior) ──
@@ -1270,10 +1305,10 @@ function App(){
     if(!legacyId){setCrmPhotos([]);return []}
     setLoadingCrmPhotos(true);let photos=[];
     try{
-      const imgOr="or=(name.ilike.*.jpg,name.ilike.*.jpeg,name.ilike.*.png,name.ilike.*.webp)";
+      const imgOr="or=(name.ilike.*.jpg,name.ilike.*.jpeg,name.ilike.*.png,name.ilike.*.webp,name.ilike.*.heic,name.ilike.*.heif)";
       const files=await sbFetch("/rest/v1/files?select=name,folder_path,storage_path&linked_listing=eq."+encodeURIComponent(legacyId)+"&"+imgOr+"&order=name.asc&limit=300");
       if(Array.isArray(files)&&files.length){let signed=[];try{signed=await sbFetch("/storage/v1/object/sign/crm-files",{method:"POST",body:JSON.stringify({expiresIn:3600,paths:files.map(f=>f.storage_path)})})}catch(e){signed=[]}
-        photos=files.map((f,i)=>{const s=signed&&signed[i]&&(signed[i].signedURL||signed[i].signedUrl);return{name:f.name,folder:f.folder_path||"",storage_path:f.storage_path,thumb:s?(String(s).startsWith("http")?s:SB_URL+"/storage/v1"+s):null}});}
+        photos=files.map((f,i)=>{const s=signed&&signed[i]&&(signed[i].signedURL||signed[i].signedUrl);const heic=/\.(heic|heif)$/i.test(f.name||"");return{name:f.name,folder:f.folder_path||"",storage_path:f.storage_path,heic,thumb:(s&&!heic)?(String(s).startsWith("http")?s:SB_URL+"/storage/v1"+s):null}});}
     }catch(e){console.error("fetchCrmPhotos",e)}
     setCrmPhotos(photos);setLoadingCrmPhotos(false);return photos;
   }
@@ -1294,7 +1329,8 @@ function App(){
     }catch(e){console.error(e)}
   }
   async function addGridFiles(files){
-    const list=Array.from(files||[]).filter(f=>/^image\//.test(f.type)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    let all=Array.from(files||[]);if(all.some(isHeicFile))all=(await withJpegs(all)).files;
+    const list=all.filter(f=>/^image\//.test(f.type)&&!isHeicFile(f)).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
     const room=MAX_GRID-gridPhotos.length;if(list.length>room)showToast("Only "+MAX_GRID+" photos fit (5 pages) — extra photos skipped");
     const urls=await Promise.all(list.slice(0,Math.max(0,room)).map(async f=>shrinkImage(await fileToDataURL(f))));setGridPhotos(prev=>prev.concat(urls).slice(0,MAX_GRID));
   }
@@ -1391,8 +1427,11 @@ function App(){
 
   // ── Autofill from uploads: photos sorted into the slides, documents read into the form,
   //    map + offering description generated, CRM listing matched (or created with one click) ──
+  async function withJpegs(list){const r=await convertHeicFiles(list);if(r.failed.length)showToast("Couldn't convert "+r.failed.join(", ")+" from iPhone format");return r}
   function afStep(key,state,note){setAfSteps(prev=>prev.map(st=>st.key===key?Object.assign({},st,{state},note!==undefined?{note}:{}):st))}
-  function addAfFiles(list){const arr=Array.from(list||[]);if(!arr.length)return;setAfFiles(prev=>{const seen=new Set(prev.map(f=>f.name+"|"+f.size));return prev.concat(arr.filter(f=>!seen.has(f.name+"|"+f.size)))});setAfError("")}
+  async function addAfFiles(list){let arr=Array.from(list||[]);if(!arr.length)return;setAfError("");
+    if(arr.some(isHeicFile)){setAfConverting(true);try{arr=(await withJpegs(arr)).files}finally{setAfConverting(false)}}
+    setAfFiles(prev=>mergeFiles(prev,arr))}
   async function findCrmMatch(st){
     let rows=null;try{rows=await sbFetch("/rest/v1/rpc/brokerage_listings",{method:"POST",body:"{}"})}catch(e){rows=null}
     if(!Array.isArray(rows))rows=crmListings;
@@ -1421,7 +1460,7 @@ function App(){
       let ph=[];const reroute=[];
       if(photoFiles.length){afStep("photos","run","Reading "+photoFiles.length+" photo"+(photoFiles.length>1?"s":"")+"…");
         for(const f of photoFiles){
-          if(afIsHeic(f)){notes.push(f.name+" is a HEIC photo. Convert it to JPG to use it in the OM (it's still copied to the CRM).");continue}
+          if(afIsHeic(f)){notes.push(f.name+" couldn't be converted from iPhone format, so it's left out of the OM (it's still copied to the CRM). Try exporting it as a JPG.");continue}
           try{const d=await shrinkImage(await fileToDataURL(f));await loadImg(d);ph.push({i:ph.length,file:f,name:f.name,data:d})}catch(e){notes.push("Couldn't read the photo "+f.name)}
           if(!live())return}
         let cls=null;const nCls=Math.min(ph.length,40);
@@ -1464,7 +1503,7 @@ function App(){
           else pushBin(f.name,"application/pdf",(await fileToDataURL(f)).split(",")[1])}
         catch(e){notes.push("Couldn't read "+f.name+": "+e.message)}
         if(!live())return}
-      for(const f of docImgs){if(afIsHeic(f)){notes.push(f.name+" is HEIC. Convert it to JPG or PDF so it can be read.");continue}
+      for(const f of docImgs){if(afIsHeic(f)){notes.push(f.name+" couldn't be converted from iPhone format. Export it as a JPG or PDF so it can be read.");continue}
         try{const d=await shrinkImage(await fileToDataURL(f));const mt=dataUrlType(d);if(/^image\/(png|jpeg|gif|webp)$/.test(mt))pushBin(f.name,mt,d.split(",")[1]);else notes.push("Couldn't read "+f.name)}catch(e){notes.push("Couldn't read "+f.name)}}
       for(const p of reroute){const mt=dataUrlType(p.data);if(/^image\/(png|jpeg|gif|webp)$/.test(mt))pushBin(p.name,mt,p.data.split(",")[1])}
       let x=null;
@@ -1653,9 +1692,9 @@ function App(){
           <div className="af-title">Autofill from files</div>
           <div className="hint" style={{marginTop:0,marginBottom:10}}>Drop in the listing photos and the seller's documents (rent roll, T-12, tax bill, insurance, Rentometer) and any notes. The photos are sorted into the cover, page 2, divider and photo pages; the documents fill in the property facts and financials; then the map and offering description are made and the draft is saved. Fields you've already filled are left alone. If the property isn't in the CRM yet, you'll get a one-click option to add it.</div>
           <div className={"af-drop"+(afDrag?" over":"")} onDragEnter={e=>{e.preventDefault();afDragRef.current++;setAfDrag(true)}} onDragLeave={()=>{afDragRef.current=Math.max(0,afDragRef.current-1);if(!afDragRef.current)setAfDrag(false)}} onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();afDragRef.current=0;setAfDrag(false);addAfFiles(e.dataTransfer.files)}}>
-            <input type="file" multiple accept="image/*,.heic,.pdf,.xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.md" disabled={afRunning} onChange={e=>{addAfFiles(e.target.files);e.target.value=""}}/>
+            <input type="file" multiple accept="image/*,.heic,.heif,.pdf,.xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.md" disabled={afRunning} onChange={e=>{addAfFiles(e.target.files);e.target.value=""}}/>
             <b>Drop photos and documents here</b> or click to choose
-            <div className="hint">JPG/PNG photos · PDF, Excel, CSV or screenshots of documents</div>
+            <div className="hint">Photos straight from an iPhone are fine (converted to JPG automatically) · PDF, Excel, CSV or screenshots of documents</div>
           </div>
           {afFiles.length>0&&(()=>{const docNames=(afOut&&afOut.docNames)||[];const photos=afFiles.filter(f=>afIsPhotoFile(f,docNames));const docs=afFiles.filter(f=>!afIsPhotoFile(f,docNames));
             return <div className="af-files">
@@ -1665,7 +1704,7 @@ function App(){
             </div>})()}
           <textarea className="af-notes" rows={3} value={afNotes} onChange={e=>setAfNotes(e.target.value)} disabled={afRunning} placeholder="Optional notes, e.g. “Asking $899k. 1919 corner building in the Tremé, renovated 2019, HDLC district, unit 4 vacant and ready to lease.”"/>
           <div style={{display:"flex",gap:10,alignItems:"center",marginTop:10,flexWrap:"wrap"}}>
-            <button className="btn-red" onClick={runAutofill} disabled={afRunning||(!afFiles.length&&!afNotes.trim())||loadingOM||!!conflict}>{afRunning?<><span className="spinner" style={{marginRight:6}}/>Autofilling…</>:"✦ Autofill the OM"}</button>
+            <button className="btn-red" onClick={runAutofill} disabled={afRunning||afConverting||(!afFiles.length&&!afNotes.trim())||loadingOM||!!conflict}>{afRunning?<><span className="spinner" style={{marginRight:6}}/>Autofilling…</>:"✦ Autofill the OM"}</button>
             {afRunning&&<span className="hint" style={{margin:0}}>This takes about a minute. Stay on this OM until it finishes.</span>}
           </div>
           {afError&&<div className="err">{afError}</div>}
@@ -1777,7 +1816,7 @@ function App(){
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}><h3 style={{margin:0}}>CRM Photos{crmPhotos.length?" ("+crmPhotos.length+")":""}</h3>{loadingCrmPhotos&&<span className="spinner"/>}<div style={{flex:1}}/><button className="btn-dark btn-sm" onClick={()=>fetchCrmPhotos(importedLegacyId)} disabled={loadingCrmPhotos||!importedLegacyId}>Reload</button></div>
           {crmPhotos.length===0&&!loadingCrmPhotos&&<p className="hint">No CRM photos found for this listing. Upload below.</p>}
           {crmPhotos.length>0&&<div className="crm-grid">{crmPhotos.map((p,i)=><div key={i} style={{fontSize:10}}>
-            <div className="crm-thumb">{p.thumb?<img src={p.thumb} loading="lazy"/>:<span style={{color:"var(--sub)"}}>no preview</span>}</div>
+            <div className="crm-thumb">{p.thumb?<img src={p.thumb} loading="lazy"/>:<span style={{color:"var(--sub)"}}>{p.heic?"iPhone photo (converts when added)":"no preview"}</span>}</div>
             <div className="ellipsis" title={p.name}>{p.name}</div>
             <select defaultValue="" onChange={e=>{if(e.target.value){assignCrmPhoto(p,e.target.value);e.target.value=""}}} style={{fontSize:10,padding:"3px 4px",marginTop:2}}>
               <option value="">Use as…</option><option value="cover">Cover (page 1)</option><option value="hero">Page 2 hero</option><option value="divider">Financial divider</option><option value="grid">Add to photo pages</option><option value="aerial">Aerial page</option><option value="flood">Flood map page</option>
@@ -1815,7 +1854,7 @@ function App(){
             <h3 style={{margin:0}}>Photo pages <span className="hint">({gridPhotos.length}/{MAX_GRID} photos · {Math.ceil(gridPhotos.length/4)} page{Math.ceil(gridPhotos.length/4)===1?"":"s"})</span></h3>
             <div style={{flex:1}}/>
             <label className="check" style={{margin:0}}><input type="checkbox" checked={showPhotoLabels} onChange={e=>setShowPhotoLabels(e.target.checked)}/> Red label on each page</label>
-            <label className="btn-red btn-sm file-btn">+ Add photos<input type="file" accept="image/*" multiple onChange={e=>{addGridFiles(e.target.files);e.target.value=""}}/></label>
+            <label className="btn-red btn-sm file-btn">+ Add photos<input type="file" accept="image/*,.heic,.heif" multiple onChange={e=>{addGridFiles(e.target.files);e.target.value=""}}/></label>
             {gridPhotos.length>0&&<button className="btn-dark btn-sm" onClick={()=>setGridPhotos([])}>Clear</button>}
           </div>
           <p className="hint" style={{margin:"8px 0 12px"}}>4 photos per page, in this order. Select or drag in as many photos as you like at once (they're added sorted by file name) and add more in batches. A last page with 2 or 3 photos uses a matching layout, never an empty square. Keep the cover/hero/divider shots out of this list.</p>
@@ -1876,11 +1915,11 @@ function App(){
       {/* STEP 6 — FINANCIALS */}
       {step===6&&<div>
         <h2>Financials</h2>
-        <div className="card import-card" {...dropProps(fl=>{const a=Array.from(fl);setFinFiles(prev=>mergeFiles(prev,a))})}>
+        <div className="card import-card" {...dropProps(async fl=>{const a=(await withJpegs(Array.from(fl))).files;setFinFiles(prev=>mergeFiles(prev,a))})}>
           <h3>Fill from the seller's files or your notes</h3>
           <p className="hint" style={{marginBottom:10}}>Upload a rent roll, T-12, tax bill, insurance quote, Rentometer report (PDF, Excel, CSV or screenshots), or paste your notes. The AI fills the tables below for you to check.</p>
           <div style={{display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
-            <label className="btn-dark btn-sm file-btn">Choose files<input type="file" multiple accept=".pdf,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,image/*" onChange={e=>{const fl=Array.from(e.target.files||[]);setFinFiles(prev=>mergeFiles(prev,fl));e.target.value=""}}/></label>
+            <label className="btn-dark btn-sm file-btn">Choose files<input type="file" multiple accept=".pdf,.xlsx,.xls,.xlsm,.csv,.tsv,.txt,.md,image/*,.heic,.heif" onChange={async e=>{const fl=Array.from(e.target.files||[]);e.target.value="";const a=(await withJpegs(fl)).files;setFinFiles(prev=>mergeFiles(prev,a))}}/></label>
             {finFiles.map((f,i)=><span key={f.name+"|"+f.size} className="chip">{f.name}<button onClick={()=>setFinFiles(finFiles.filter((_,j)=>j!==i))}>×</button></span>)}
             {finFiles.length>1&&<button className="link-btn" onClick={()=>setFinFiles([])}>Clear all</button>}
             {!finFiles.length&&<span className="hint" style={{margin:0}}>Select several at once, add more in batches, or drag files onto this box.</span>}
@@ -2009,6 +2048,7 @@ function App(){
     </div>
     </main>
     </div>
+    {heicMsg&&<div className="heic-bar"><span className="spinner"/>{heicMsg}</div>}
     {toast&&<div className="toast">{toast}</div>}
   </>
 }
