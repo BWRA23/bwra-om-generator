@@ -347,7 +347,7 @@ function omSummaryRows(d,f){
     {key:"pfcap",label:"PRO FORMA CAP",value:v("pfcap",isFinite(f.proformaCap)?(f.proformaCap*100).toFixed(1)+"%":"")}
   ];
   if(d.showPricePerUnit)right.push({key:"ppu",label:"PRICE PER UNIT",value:v("ppu",isFinite(f.pricePerUnit)?omMoney(f.pricePerUnit):"")});
-  (d.summaryExtra||[]).forEach(function(x,i){if(x&&String(x.label||"").trim()&&String(x.value||"").trim())(i%2===0?left:right).push({key:"x"+i,label:String(x.label).toUpperCase(),value:String(x.value)})});
+  (d.summaryExtra||[]).forEach(function(x,i){if(x&&!x.hidden&&String(x.label||"").trim()&&String(x.value||"").trim())(i%2===0?left:right).push({key:"x"+i,label:String(x.label).toUpperCase(),value:String(x.value)})});
   var hide=d.summaryHidden||[];function keep(r){return String(r.value).trim()&&hide.indexOf(r.key)<0}
   return{left:left.filter(keep),right:right.filter(keep)};
 }
@@ -1370,20 +1370,28 @@ function App(){
   }
   function removeSummaryRow(key){
     if(key==="ppu"){setShowPricePerUnit(false);return}
-    if(key.charAt(0)==="x"){const i=+key.slice(1);setSummaryExtra(prev=>prev.filter((_,k)=>k!==i));return}
+    if(key.charAt(0)==="x"){const i=+key.slice(1);setSummaryExtra(prev=>prev.map((x,k)=>k===i?Object.assign({},x,{hidden:true}):x));return}
     setSummaryHidden(prev=>prev.includes(key)?prev:prev.concat([key]));
   }
   // ── Drag and drop for photos: reorder the photo pages, swap with cover / page 2 / divider / aerial / flood,
   //    or drag a CRM photo straight into a slot. Uses its own data type, so file drops (from the desktop) still work as before.
   const DND="application/x-om-photo";
+  const tabIdRef=useRef(Math.random().toString(36).slice(2));
+  const liveRef=useRef({});liveRef.current={grid:gridPhotos,cover:coverPhoto,hero:heroPhoto,divider:dividerPhoto,aerial:aerialPhoto,flood:floodMapPhoto};
   const slotGet=k=>({cover:coverPhoto,hero:heroPhoto,divider:dividerPhoto,aerial:aerialPhoto,flood:floodMapPhoto})[k]||null;
-  function slotPut(k,v){if(k==="cover")setCoverPhoto(v);else if(k==="hero")setHeroPhoto(v);else if(k==="divider")setDividerPhoto(v);else if(k==="aerial"){setAerialPhoto(v);if(v)setIncludeAerial(true)}else if(k==="flood"){setFloodMapPhoto(v);if(v)setIncludeFloodMap(true)}}
+  // Emptying the aerial / flood slot by dragging its photo away also turns that page off, so it can't block Generate.
+  function slotPut(k,v){if(k==="cover")setCoverPhoto(v);else if(k==="hero")setHeroPhoto(v);else if(k==="divider")setDividerPhoto(v);else if(k==="aerial"){setAerialPhoto(v);setIncludeAerial(!!v)}else if(k==="flood"){setFloodMapPhoto(v);setIncludeFloodMap(!!v)}}
   const isPhotoDrag=e=>!!(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes(DND));
-  function dragFrom(payload,key){return e=>{try{e.dataTransfer.setData(DND,JSON.stringify(payload));e.dataTransfer.effectAllowed="move"}catch(_){}setDndFrom(key)}}
+  const dragRef=useRef(null);   // the photo being dragged (by value), so a drop always acts on that exact photo
+  function dragFrom(payload,key,photo){return e=>{dragRef.current={photo:photo||null,payload};try{e.dataTransfer.setData(DND,JSON.stringify(Object.assign({tab:tabIdRef.current},payload)));e.dataTransfer.effectAllowed="move"}catch(_){}setDndFrom(key)}}
   function dropTarget(key,onPayload){return{over:dndOver===key,
     onDragOver:e=>{if(!isPhotoDrag(e))return;e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect="move";if(dndOver!==key)setDndOver(key)},
     onDragLeave:e=>{if(!e.currentTarget.contains(e.relatedTarget))setDndOver(o=>o===key?null:o)},
-    onDrop:e=>{if(!isPhotoDrag(e))return;e.preventDefault();e.stopPropagation();setDndOver(null);setDndFrom(null);let pl=null;try{pl=JSON.parse(e.dataTransfer.getData(DND))}catch(_){}if(pl)onPayload(pl)},
+    onDrop:e=>{if(!isPhotoDrag(e))return;e.preventDefault();e.stopPropagation();setDndOver(null);setDndFrom(null);let pl=null;try{pl=JSON.parse(e.dataTransfer.getData(DND))}catch(_){}
+      const dr=dragRef.current;dragRef.current=null;
+      if(!pl||pl.tab!==tabIdRef.current)return;                         // ignore drags coming from another browser tab
+      if(pl.from==="grid"){const i=dr&&dr.photo?liveRef.current.grid.indexOf(dr.photo):-1;if(i<0){showToast("That photo moved while you were dragging — try again");return}pl=Object.assign({},pl,{i})}
+      onPayload(pl)},
     onDragEnd:()=>{setDndOver(null);setDndFrom(null)}}}
   function loadCrmForDrop(pl,then){const tk=sessionRef.current;showToast("Loading photo…");crmFileToDataURL(pl.path).then(d=>{if(sessionRef.current===tk)then(d)}).catch(()=>showToast("Couldn't load that photo"))}
   // j = index on the photo pages; j === gridPhotos.length means "add at the end"
@@ -1393,15 +1401,17 @@ function App(){
       if(j>=n.length){if(n.length>=MAX_GRID){showToast("The photo pages are full ("+MAX_GRID+")");return}n.push(v);slotPut(pl.slot,null)}
       else{const old=n[j];n[j]=v;slotPut(pl.slot,old)}
       setGridPhotos(n);return}
-    if(pl.from==="crm"){if(gridPhotos.length>=MAX_GRID&&j>=gridPhotos.length){showToast("The photo pages are full ("+MAX_GRID+")");return}
-      loadCrmForDrop(pl,d=>setGridPhotos(prev=>{if(prev.length>=MAX_GRID){showToast("The photo pages are full ("+MAX_GRID+")");return prev}const n=[...prev];n.splice(Math.min(j,n.length),0,d);return n}))}
+    if(pl.from==="crm"){if(gridPhotos.length>=MAX_GRID){showToast("The photo pages are full ("+MAX_GRID+")");return}
+      const anchor=j<gridPhotos.length?gridPhotos[j]:null;   // insert before this photo, wherever it is by the time the download lands
+      loadCrmForDrop(pl,d=>{const cur=liveRef.current.grid;if(cur.length>=MAX_GRID){showToast("The photo pages are full ("+MAX_GRID+")");return}
+        const at=anchor?cur.indexOf(anchor):cur.length;const n=[...cur];n.splice(at<0?n.length:at,0,d);setGridPhotos(n)})}
   }
   function dropOnSlot(slot,pl){
     if(pl.from==="grid"){const v=gridPhotos[pl.i];if(!v)return;const old=slotGet(slot);const n=[...gridPhotos];if(old)n[pl.i]=old;else n.splice(pl.i,1);setGridPhotos(n);slotPut(slot,v);return}
     if(pl.from==="slot"){if(pl.slot===slot)return;const a=slotGet(pl.slot),b=slotGet(slot);slotPut(slot,a);slotPut(pl.slot,b);return}
-    if(pl.from==="crm")loadCrmForDrop(pl,d=>slotPut(slot,d));
+    if(pl.from==="crm"){const before=slotGet(slot);loadCrmForDrop(pl,d=>{if(liveRef.current[slot]!==before){showToast("That slot changed while the photo was loading — drop it again");return}slotPut(slot,d)})}
   }
-  function slotDnd(slot){return Object.assign(dropTarget("slot:"+slot,pl=>dropOnSlot(slot,pl)),{onDragStart:dragFrom({from:"slot",slot},"slot:"+slot)})}
+  function slotDnd(slot){return Object.assign(dropTarget("slot:"+slot,pl=>dropOnSlot(slot,pl)),{onDragStart:dragFrom({from:"slot",slot},"slot:"+slot,slotGet(slot))})}
   function moveGrid(i,dir){setGridPhotos(prev=>{const n=[...prev];const j=i+dir;if(j<0||j>=n.length)return prev;[n[i],n[j]]=[n[j],n[i]];return n})}
 
   // ── Map from address (Google Static Maps via om-static-map) ──
@@ -1899,7 +1909,7 @@ function App(){
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}><h3 style={{margin:0}}>CRM Photos{crmPhotos.length?" ("+crmPhotos.length+")":""}</h3>{loadingCrmPhotos&&<span className="spinner"/>}<div style={{flex:1}}/><button className="btn-dark btn-sm" onClick={()=>fetchCrmPhotos(importedLegacyId)} disabled={loadingCrmPhotos||!importedLegacyId}>Reload</button></div>
           {crmPhotos.length===0&&!loadingCrmPhotos&&<p className="hint">No CRM photos found for this listing. Upload below.</p>}
           {crmPhotos.length>0&&<div className="crm-grid">{crmPhotos.map((p,i)=><div key={i} style={{fontSize:10}}>
-            <div className="crm-thumb" draggable onDragStart={dragFrom({from:"crm",path:p.storage_path,name:p.name},"crm:"+i)} onDragEnd={()=>{setDndOver(null);setDndFrom(null)}} title="Drag onto a slot or the photo pages" style={{cursor:"grab"}}>{p.thumb?<img src={p.thumb} loading="lazy"/>:<span style={{color:"var(--sub)"}}>{p.heic?"iPhone photo (converts when added)":"no preview"}</span>}</div>
+            <div className="crm-thumb" draggable onDragStart={dragFrom({from:"crm",path:p.storage_path,name:p.name},"crm:"+i,null)} onDragEnd={()=>{setDndOver(null);setDndFrom(null)}} title="Drag onto a slot or the photo pages" style={{cursor:"grab"}}>{p.thumb?<img src={p.thumb} loading="lazy" draggable={false}/>:<span style={{color:"var(--sub)"}}>{p.heic?"iPhone photo (converts when added)":"no preview"}</span>}</div>
             <div className="ellipsis" title={p.name}>{p.name}</div>
             <select defaultValue="" onChange={e=>{if(e.target.value){assignCrmPhoto(p,e.target.value);e.target.value=""}}} style={{fontSize:10,padding:"3px 4px",marginTop:2}}>
               <option value="">Use as…</option><option value="cover">Cover (page 1)</option><option value="hero">Page 2 hero</option><option value="divider">Financial divider</option><option value="grid">Add to photo pages</option><option value="aerial">Aerial page</option><option value="flood">Flood map page</option>
@@ -1944,7 +1954,7 @@ function App(){
           {Array.from({length:Math.ceil(gridPhotos.length/4)}).map((_,pi)=><div key={pi} className="grid-page">
             <div className="grid-page-h">Page {pi+1}{showPhotoLabels&&<input value={pageLabels[pi]||""} onChange={e=>{const n=[...pageLabels];n[pi]=e.target.value;setPageLabels(n)}} placeholder="Label, e.g. 8019 Trapier" style={{width:220,marginLeft:10}}/>}</div>
             <div className="grid-thumbs">{gridPhotos.slice(pi*4,pi*4+4).map((src,j)=>{const i=pi*4+j;const t=dropTarget("g"+i,pl=>dropOnGrid(i,pl));
-              return <div key={i} className={"grid-thumb"+(t.over?" dnd-over":"")+(dndFrom==="g"+i?" dnd-from":"")} draggable onDragStart={dragFrom({from:"grid",i},"g"+i)} onDragEnd={t.onDragEnd} onDragOver={t.onDragOver} onDragLeave={t.onDragLeave} onDrop={t.onDrop} title="Drag to reorder"><img src={src} draggable={false}/>
+              return <div key={i} className={"grid-thumb"+(t.over?" dnd-over":"")+(dndFrom==="g"+i?" dnd-from":"")} draggable onDragStart={dragFrom({from:"grid",i},"g"+i,src)} onDragEnd={t.onDragEnd} onDragOver={t.onDragOver} onDragLeave={t.onDragLeave} onDrop={t.onDrop} title="Drag to reorder"><img src={src} draggable={false}/>
               <div className="grid-tools"><button onClick={()=>moveGrid(i,-1)} disabled={i===0}>◀</button><span>{i+1}</span><button onClick={()=>moveGrid(i,1)} disabled={i===gridPhotos.length-1}>▶</button><button onClick={()=>setGridPhotos(gridPhotos.filter((_,k)=>k!==i))}>×</button></div></div>})}</div>
           </div>)}
           {gridPhotos.length<MAX_GRID&&(()=>{const t=dropTarget("gend",pl=>dropOnGrid(gridPhotos.length,pl));return <div className={"grid-end"+(t.over?" dnd-over":"")} onDragOver={t.onDragOver} onDragLeave={t.onDragLeave} onDrop={t.onDrop}>{gridPhotos.length?"Drop a photo here to put it last":"Drag photos here from the slots above or the CRM photos"}</div>})()}
@@ -1980,13 +1990,14 @@ function App(){
           {[["Left column",summaryRows.left],["Right column",summaryRows.right]].map(([t,rows])=><div key={t} className="card">
             <h3>{t}</h3>
             {rows.map(r=><div key={r.key} className="sum-row">
-              <div className="sum-l"><button className="sum-x" title="Remove from the summary" onClick={()=>removeSummaryRow(r.key)}>×</button>{r.label}</div>
+              <div className="sum-l"><button type="button" className="sum-x" title="Remove from the summary" aria-label={"Remove "+r.label+" from the summary"} onClick={()=>removeSummaryRow(r.key)}>×</button>{r.label}</div>
               <div className="sum-v">{String(r.value).split("\n").map((x,i)=><div key={i}>{x}</div>)}</div>
               {r.key.charAt(0)!=="x"&&<input className="sum-o" placeholder="override" value={summaryOverrides[r.key]||""} onChange={e=>setSummaryOverrides({...summaryOverrides,[r.key]:e.target.value})}/>}
             </div>)}
           </div>)}
         </div>
-        {summaryHidden.length>0&&<div className="sum-removed">Removed from the summary: {summaryHidden.map(k=><button key={k} className="chip" onClick={()=>setSummaryHidden(summaryHidden.filter(x=>x!==k))} title="Put it back">{k==="price"?priceLabel:(SUMMARY_LABELS[k]||k)} ↺</button>)}</div>}
+        {(summaryHidden.length>0||summaryExtra.some(x=>x&&x.hidden))&&<div className="sum-removed">Removed from the summary: {summaryHidden.map(k=><button key={k} type="button" className="chip" onClick={()=>setSummaryHidden(summaryHidden.filter(x=>x!==k))} title="Put it back" aria-label={"Put "+(k==="price"?priceLabel:(SUMMARY_LABELS[k]||k))+" back on the summary"}>{k==="price"?priceLabel:(SUMMARY_LABELS[k]||k)} ↺</button>)}
+          {summaryExtra.map((x,i)=>x&&x.hidden?<button key={"x"+i} type="button" className="chip" onClick={()=>setSummaryExtra(summaryExtra.map((y,k)=>k===i?Object.assign({},y,{hidden:false}):y))} title="Put it back">{String(x.label||"").toUpperCase()} ↺</button>:null)}</div>}
         {["price","ppsf","income","site","layouts","units","gba","occ","ipcap","pfcap"].filter(k=>!summaryHidden.includes(k)&&!summaryRows.left.concat(summaryRows.right).some(r=>r.key===k)).length>0&&<p className="hint" style={{marginTop:8}}>Rows without a value are left off the page (fill in Steps 1 and 6 to add them).</p>}
         <div className="card" style={{marginTop:14}}>
           <label className="check"><input type="checkbox" checked={showPricePerUnit} onChange={e=>setShowPricePerUnit(e.target.checked)}/> Also show PRICE PER UNIT</label>
