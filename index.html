@@ -40,6 +40,8 @@ label{font-size:12px;color:var(--muted);font-weight:500;display:block;margin-bot
 .topbar{display:flex;align-items:center;padding:12px 24px;background:var(--surface);border-bottom:1px solid var(--border);gap:16px;position:sticky;top:0;z-index:100;box-shadow:0 1px 3px rgba(0,0,0,.06)}
 .topbar h1{font-family:var(--fontH);font-size:20px;font-weight:700;letter-spacing:1px;color:var(--text)}
 .topbar .red{color:var(--red)}
+.app-links{display:flex;gap:6px}.app-links a{font-size:12px;font-weight:600;color:var(--text);text-decoration:none;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);white-space:nowrap}.app-links a:hover{border-color:var(--red);color:var(--red)}
+@media(max-width:760px){.app-links{display:none}}
 .container{max-width:900px;margin:0 auto;padding:24px}
 h2{font-family:var(--fontH);font-size:22px;font-weight:700;margin-bottom:16px;letter-spacing:.5px}
 h3{font-size:14px;font-weight:600;margin-bottom:10px;color:var(--text)}
@@ -1755,6 +1757,10 @@ function App(){
       <button className="btn-dark btn-sm nav-toggle" onClick={()=>setNavOpen(!navOpen)}>☰ OMs</button>
       <h1>BRIDGEWATER <span className="red">OM GENERATOR</span></h1>
       <div style={{flex:1}}/>
+      <nav className="app-links">
+        <a href="https://crm.bridgewater.realty/" target="_blank" rel="noopener noreferrer">CRM ↗</a>
+        <a href="https://studio.bridgewater.realty/" target="_blank" rel="noopener noreferrer">Creation Studio ↗</a>
+      </nav>
       {hasContent&&<span className={"save-state"+(saveError?" bad":isDirty?" dirty":"")} title={saveError||""}>{loadingOM?"Loading…":savingDraft?"Saving…":conflict?"Changed elsewhere":saveError?"Save failed — retry":isDirty?"Unsaved changes":(lastSavedAt?"Saved "+timeAgo(lastSavedAt):"")}</span>}
       <button className="btn-red btn-sm" onClick={()=>saveDraft()} disabled={savingDraft||!hasContent||loadingOM||!!conflict}>{savingDraft?<span className="spinner"/>:"Save progress"}</button>
       <span className="top-email">{user.email}</span>
