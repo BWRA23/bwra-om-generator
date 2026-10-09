@@ -171,6 +171,12 @@ table.fin-table input:disabled,input:disabled{background:var(--surface2);color:v
 .drop-over{outline:2px dashed var(--red);outline-offset:-4px;background:#fff5f5 !important}
 .heic-bar{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#18181b;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;z-index:1000;display:flex;gap:10px;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .heic-bar .spinner{border-color:rgba(255,255,255,.25);border-top-color:#fff}
+.dnd-over{outline:3px solid var(--red)!important;outline-offset:2px;background:#fff5f5}
+.grid-thumb{cursor:grab}.grid-thumb.dnd-from{opacity:.35}
+.grid-end{margin-top:10px;border:2px dashed var(--border);border-radius:8px;padding:14px;text-align:center;font-size:12px;color:var(--muted)}
+.sum-x{background:none;border:none;color:var(--sub);font-size:15px;line-height:1;padding:0 6px 0 0;cursor:pointer}.sum-x:hover{color:var(--red)}
+.sum-removed{margin-top:10px;font-size:12px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.sum-removed .chip{cursor:pointer;padding:3px 10px}
 </style>
 </head>
 <body>
@@ -342,7 +348,8 @@ function omSummaryRows(d,f){
   ];
   if(d.showPricePerUnit)right.push({key:"ppu",label:"PRICE PER UNIT",value:v("ppu",isFinite(f.pricePerUnit)?omMoney(f.pricePerUnit):"")});
   (d.summaryExtra||[]).forEach(function(x,i){if(x&&String(x.label||"").trim()&&String(x.value||"").trim())(i%2===0?left:right).push({key:"x"+i,label:String(x.label).toUpperCase(),value:String(x.value)})});
-  return{left:left.filter(function(r){return String(r.value).trim()}),right:right.filter(function(r){return String(r.value).trim()})};
+  var hide=d.summaryHidden||[];function keep(r){return String(r.value).trim()&&hide.indexOf(r.key)<0}
+  return{left:left.filter(keep),right:right.filter(keep)};
 }
 
 // Auto-written intro for the Current Rent Roll page (agent can edit it in the app).
@@ -732,8 +739,8 @@ function loadImg(src){return new Promise((res,rej)=>{const im=new Image();if(/^h
 // and the PPTX small. vBias: 0 = keep top, 0.5 = center (headshots use a slight top bias).
 async function cropToBox(src,wIn,hIn,maxPx,vBias){
   if(!src)return null;const im=await loadImg(src);const ar=wIn/hIn;let sw=im.naturalWidth,sh=im.naturalHeight,sx=0,sy=0;
-  if(sw/sh>ar){const nw=Math.round(sh*ar);sx=Math.round((sw-nw)/2);sw=nw}else{const nh=Math.round(sw/ar);sy=Math.round((sh-nh)*(vBias===undefined?0.5:vBias));sh=nh}
-  const ow=Math.min(maxPx||1800,sw),oh=Math.round(ow/ar);const c=document.createElement("canvas");c.width=ow;c.height=oh;
+  if(sw/sh>ar){const nw=Math.max(1,Math.round(sh*ar));sx=Math.round((sw-nw)/2);sw=nw}else{const nh=Math.max(1,Math.round(sw/ar));sy=Math.round((sh-nh)*(vBias===undefined?0.5:vBias));sh=nh}
+  const ow=Math.max(1,Math.min(maxPx||1800,sw)),oh=Math.max(1,Math.round(ow/ar));const c=document.createElement("canvas");c.width=ow;c.height=oh;
   const g=c.getContext("2d");g.imageSmoothingQuality="high";g.drawImage(im,sx,sy,sw,sh,0,0,ow,oh);return c.toDataURL("image/jpeg",0.86);
 }
 async function uploadPhoto(dataUrl,path){
@@ -844,11 +851,12 @@ function mergeFiles(prev,list){const seen=new Set(prev.map(f=>f.name+"|"+f.size)
 // ════════════════════════════════════════════════════════
 // SMALL UI PIECES
 // ════════════════════════════════════════════════════════
-function PhotoUpload({value,onChange,label,tall}){
+function PhotoUpload({value,onChange,label,tall,dnd}){
   const handleFile=async(e)=>{let f=e.target.files?.[0];e.target.value="";if(!f)return;
     if(isHeicFile(f)){const r=await convertHeicFiles([f]);if(r.failed.length){try{window.dispatchEvent(new CustomEvent("app-toast",{detail:"Couldn't convert "+f.name+" from iPhone format. Try exporting it as a JPG."}))}catch(_){}return}f=r.files[0]}
     const d=await shrinkImage(await fileToDataURL(f));onChange(d)};
-  return <div className="photo-drop" style={{position:"relative",minHeight:tall?150:100}}>
+  const d=dnd||{};
+  return <div className={"photo-drop"+(d.over?" dnd-over":"")} style={{position:"relative",minHeight:tall?150:100}} draggable={!!(value&&d.onDragStart)} onDragStart={value?d.onDragStart:undefined} onDragEnd={d.onDragEnd} onDragOver={d.onDragOver} onDragLeave={d.onDragLeave} onDrop={d.onDrop} title={value&&d.onDragStart?"Drag to swap with another photo":undefined}>
     {value?<><img src={value}/><button onClick={(e)=>{e.stopPropagation();onChange(null)}} className="x-btn">×</button></>:<span style={{color:"var(--muted)",fontSize:12}}>{label||"Click or drop image"}</span>}
     <input type="file" accept="image/*,.heic,.heif" onChange={handleFile}/>
   </div>
@@ -891,6 +899,7 @@ const DEFAULT_MARKET=()=>({source:"",rows:[]});
 const DEFAULT_CF_ITEMS=()=>[{label:"Purchase Price",current:"",proforma:""},{label:"Down Payment",current:"",proforma:""},{label:"Loan Amount",current:"",proforma:""},{label:"Annual Debt Service",current:"",proforma:""},{label:"NOI",current:"",proforma:""},{label:"Cash Flow After Debt Service",current:"",proforma:""},{label:"DSCR",current:"",proforma:""},{label:"Cash on Cash Return",current:"",proforma:""}];
 const DEFAULT_CF_TERMS=()=>[{label:"Rate (%)",current:"",proforma:""},{label:"Amortization",current:"",proforma:""},{label:"LTV",current:"",proforma:""}];
 const MAX_GRID=20;
+const SUMMARY_LABELS={ppsf:"PRICE PER SF",income:"INCOME",site:"SITE SIZE",layouts:"LAYOUTS",units:"UNIT COUNT",gba:"GBA",occ:"OCCUPANCY",ipcap:"IN PLACE CAP",pfcap:"PRO FORMA CAP"};
 const PPTX_MIME="application/vnd.openxmlformats-officedocument.presentationml.presentation";
 const AI_PLACEHOLDER="Describe the property in your own words, like you'd tell a buyer. e.g. “Historic 1919 corner building in the Tremé, renovated in 2019, 30 x 112 lot in the HDLC district, steps from the French Quarter, value-add through lease-up of the vacant unit and rent growth.”\n\nUnit count, unit mix, occupancy and rents come from the rent roll automatically, so you don’t need to repeat them.";
 
@@ -975,6 +984,8 @@ function App(){
   const[gridPhotos,setGridPhotos]=useState([]);
   const[showPhotoLabels,setShowPhotoLabels]=useState(false);
   const[pageLabels,setPageLabels]=useState([]);
+  const[dndOver,setDndOver]=useState(null);       // highlighted drop target while dragging a photo
+  const[dndFrom,setDndFrom]=useState(null);       // what's being dragged (for the faded look)
 
   // Offering
   const[offeringText,setOfferingText]=useState("");
@@ -988,6 +999,7 @@ function App(){
   const[summaryExtra,setSummaryExtra]=useState([]);
   const[summaryNote,setSummaryNote]=useState("");
   const[showPricePerUnit,setShowPricePerUnit]=useState(false);
+  const[summaryHidden,setSummaryHidden]=useState([]);   // summary rows the agent removed
 
   // Financials
   const[rentRoll,setRentRoll]=useState(DEFAULT_RENT_ROLL());
@@ -1047,7 +1059,7 @@ function App(){
   const fin=omCalc(finInput);
   const cityLine=[city,stateAbbr,zip].map(x=>String(x||"").trim()).filter(Boolean).join(", ");
   const property={name:propertyName,street:street.trim(),addressLines:[street.trim()].concat(extraAddresses.map(a=>expandStreet(a)).filter(Boolean)),city:city.trim(),state:stateAbbr,zip,cityLine,neighborhood:neighborhood.trim(),unitDescription:unitDescription.trim(),yearBuilt,yearRenovated,styleWord:styleWord.trim()};
-  const summaryCtx={priceLabel,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit};
+  const summaryCtx={priceLabel,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,summaryHidden};
   const summaryRows=omSummaryRows(summaryCtx,fin);
   const autoIntro=omRentRollIntro({property,rentRollDate},fin);
   const introText=introEdited?rentRollIntro:autoIntro;
@@ -1068,7 +1080,7 @@ function App(){
   function collectData(urlFor,mapOverride){
     return{version:2,propertyName,unitsHint,
       property:{street,extraAddresses,city,state:stateAbbr,zip,neighborhood,unitDescription,coverTag,priceLabel,askingPrice,gbaSf,siteSf,yearBuilt,yearRenovated,lotDescription,styleWord},
-      selectedAgents,agentEdits,offeringText,aiPrompt,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,
+      selectedAgents,agentEdits,offeringText,aiPrompt,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,summaryHidden,
       rentRoll,rentRollDate,rentRollIntro:introEdited?rentRollIntro:"",introEdited,vacancyPct,otherIncome,expenses,expenseProfile,opexFootnote,market,
       includeCashFlow,cashFlow:{items:cfItems,financingTerms:cfTerms},includeAerial,includeFloodMap,showPhotoLabels,pageLabels,mapZoom,
       photos:{cover:urlFor(coverPhoto),hero:urlFor(heroPhoto),divider:urlFor(dividerPhoto),map:urlFor(mapOverride||mapPhoto),aerial:urlFor(aerialPhoto),flood:urlFor(floodMapPhoto),
@@ -1245,7 +1257,7 @@ function App(){
       if(P.yearBuilt!=null)setYearBuilt(String(P.yearBuilt));if(P.yearRenovated!=null)setYearRenovated(String(P.yearRenovated));if(P.lotDescription!=null)setLotDescription(P.lotDescription);if(P.styleWord!=null)setStyleWord(P.styleWord);
       if(Array.isArray(om.selectedAgents))setSelectedAgents(om.selectedAgents);if(om.agentEdits)setAgentEdits(om.agentEdits);
       if(typeof om.offeringText==="string")setOfferingText(om.offeringText);if(typeof om.aiPrompt==="string")setAiPrompt(om.aiPrompt);
-      if(om.summaryOverrides)setSummaryOverrides(om.summaryOverrides);if(Array.isArray(om.summaryExtra))setSummaryExtra(om.summaryExtra);if(typeof om.summaryNote==="string")setSummaryNote(om.summaryNote);setShowPricePerUnit(!!om.showPricePerUnit);
+      if(om.summaryOverrides)setSummaryOverrides(om.summaryOverrides);if(Array.isArray(om.summaryExtra))setSummaryExtra(om.summaryExtra);if(typeof om.summaryNote==="string")setSummaryNote(om.summaryNote);setShowPricePerUnit(!!om.showPricePerUnit);setSummaryHidden(Array.isArray(om.summaryHidden)?om.summaryHidden:[]);
       if(Array.isArray(om.rentRoll)&&om.rentRoll.length)setRentRoll(om.rentRoll);if(om.rentRollDate!=null)setRentRollDate(om.rentRollDate);
       if(om.introEdited){setIntroEdited(true);setRentRollIntro(om.rentRollIntro||"")}
       if(om.vacancyPct!=null)setVacancyPct(String(om.vacancyPct));if(om.otherIncome!=null)setOtherIncome(String(om.otherIncome));
@@ -1314,7 +1326,7 @@ function App(){
     setCoverPhoto(null);setHeroPhoto(null);setDividerPhoto(null);setMapPhoto(null);setMapZoom(14);setAerialPhoto(null);setFloodMapPhoto(null);setIncludeAerial(false);setIncludeFloodMap(false);
     setGridPhotos([]);setShowPhotoLabels(false);setPageLabels([]);
     setOfferingText("");setAiPrompt("");setAiWarnings([]);
-    setSummaryOverrides({});setSummaryExtra([]);setSummaryNote("");setShowPricePerUnit(false);
+    setSummaryOverrides({});setSummaryExtra([]);setSummaryNote("");setShowPricePerUnit(false);setSummaryHidden([]);setDndOver(null);setDndFrom(null);
     setRentRoll(DEFAULT_RENT_ROLL());setRentRollDate("");setRentRollIntro("");setIntroEdited(false);setVacancyPct("5");setOtherIncome("0");setExpenses(DEFAULT_EXPENSES());setExpenseProfile("");setOpexFootnote("");setMarket(DEFAULT_MARKET());
     setIncludeCashFlow(false);setCfItems(DEFAULT_CF_ITEMS());setCfTerms(DEFAULT_CF_TERMS());setFinFiles([]);setFinNotes("");setFinResult(null);setFinUndo(null);
     setAfFiles([]);setAfNotes("");setAfRunning(false);setAfSteps([]);setAfOut(null);setAfError("");setAfStage(null);
@@ -1356,6 +1368,40 @@ function App(){
     const room=MAX_GRID-gridPhotos.length;if(list.length>room)showToast("Only "+MAX_GRID+" photos fit (5 pages) — extra photos skipped");
     const urls=await Promise.all(list.slice(0,Math.max(0,room)).map(async f=>shrinkImage(await fileToDataURL(f))));setGridPhotos(prev=>prev.concat(urls).slice(0,MAX_GRID));
   }
+  function removeSummaryRow(key){
+    if(key==="ppu"){setShowPricePerUnit(false);return}
+    if(key.charAt(0)==="x"){const i=+key.slice(1);setSummaryExtra(prev=>prev.filter((_,k)=>k!==i));return}
+    setSummaryHidden(prev=>prev.includes(key)?prev:prev.concat([key]));
+  }
+  // ── Drag and drop for photos: reorder the photo pages, swap with cover / page 2 / divider / aerial / flood,
+  //    or drag a CRM photo straight into a slot. Uses its own data type, so file drops (from the desktop) still work as before.
+  const DND="application/x-om-photo";
+  const slotGet=k=>({cover:coverPhoto,hero:heroPhoto,divider:dividerPhoto,aerial:aerialPhoto,flood:floodMapPhoto})[k]||null;
+  function slotPut(k,v){if(k==="cover")setCoverPhoto(v);else if(k==="hero")setHeroPhoto(v);else if(k==="divider")setDividerPhoto(v);else if(k==="aerial"){setAerialPhoto(v);if(v)setIncludeAerial(true)}else if(k==="flood"){setFloodMapPhoto(v);if(v)setIncludeFloodMap(true)}}
+  const isPhotoDrag=e=>!!(e.dataTransfer&&Array.from(e.dataTransfer.types||[]).includes(DND));
+  function dragFrom(payload,key){return e=>{try{e.dataTransfer.setData(DND,JSON.stringify(payload));e.dataTransfer.effectAllowed="move"}catch(_){}setDndFrom(key)}}
+  function dropTarget(key,onPayload){return{over:dndOver===key,
+    onDragOver:e=>{if(!isPhotoDrag(e))return;e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect="move";if(dndOver!==key)setDndOver(key)},
+    onDragLeave:e=>{if(!e.currentTarget.contains(e.relatedTarget))setDndOver(o=>o===key?null:o)},
+    onDrop:e=>{if(!isPhotoDrag(e))return;e.preventDefault();e.stopPropagation();setDndOver(null);setDndFrom(null);let pl=null;try{pl=JSON.parse(e.dataTransfer.getData(DND))}catch(_){}if(pl)onPayload(pl)},
+    onDragEnd:()=>{setDndOver(null);setDndFrom(null)}}}
+  function loadCrmForDrop(pl,then){const tk=sessionRef.current;showToast("Loading photo…");crmFileToDataURL(pl.path).then(d=>{if(sessionRef.current===tk)then(d)}).catch(()=>showToast("Couldn't load that photo"))}
+  // j = index on the photo pages; j === gridPhotos.length means "add at the end"
+  function dropOnGrid(j,pl){
+    if(pl.from==="grid"){if(pl.i===j)return;setGridPhotos(prev=>{const n=[...prev];const [x]=n.splice(pl.i,1);n.splice(Math.min(j,n.length),0,x);return n});return}
+    if(pl.from==="slot"){const v=slotGet(pl.slot);if(!v)return;const n=[...gridPhotos];
+      if(j>=n.length){if(n.length>=MAX_GRID){showToast("The photo pages are full ("+MAX_GRID+")");return}n.push(v);slotPut(pl.slot,null)}
+      else{const old=n[j];n[j]=v;slotPut(pl.slot,old)}
+      setGridPhotos(n);return}
+    if(pl.from==="crm"){if(gridPhotos.length>=MAX_GRID&&j>=gridPhotos.length){showToast("The photo pages are full ("+MAX_GRID+")");return}
+      loadCrmForDrop(pl,d=>setGridPhotos(prev=>{if(prev.length>=MAX_GRID){showToast("The photo pages are full ("+MAX_GRID+")");return prev}const n=[...prev];n.splice(Math.min(j,n.length),0,d);return n}))}
+  }
+  function dropOnSlot(slot,pl){
+    if(pl.from==="grid"){const v=gridPhotos[pl.i];if(!v)return;const old=slotGet(slot);const n=[...gridPhotos];if(old)n[pl.i]=old;else n.splice(pl.i,1);setGridPhotos(n);slotPut(slot,v);return}
+    if(pl.from==="slot"){if(pl.slot===slot)return;const a=slotGet(pl.slot),b=slotGet(slot);slotPut(slot,a);slotPut(pl.slot,b);return}
+    if(pl.from==="crm")loadCrmForDrop(pl,d=>slotPut(slot,d));
+  }
+  function slotDnd(slot){return Object.assign(dropTarget("slot:"+slot,pl=>dropOnSlot(slot,pl)),{onDragStart:dragFrom({from:"slot",slot},"slot:"+slot)})}
   function moveGrid(i,dir){setGridPhotos(prev=>{const n=[...prev];const j=i+dir;if(j<0||j>=n.length)return prev;[n[i],n[j]]=[n[j],n[i]];return n})}
 
   // ── Map from address (Google Static Maps via om-static-map) ──
@@ -1640,7 +1686,7 @@ function App(){
   async function buildOMData(mapOverride){
     const embedded={mason:BW_HEADSHOTS.mason,bryce:BW_HEADSHOTS.bryce,cameron:BW_HEADSHOTS.cameron};
     const ag=agents.slice(0,3);
-    const d={property,agents:ag,coverTag:coverTag.trim()||"FOR SALE",priceLabel,offeringText,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,
+    const d={property,agents:ag,coverTag:coverTag.trim()||"FOR SALE",priceLabel,offeringText,summaryOverrides,summaryExtra,summaryNote,showPricePerUnit,summaryHidden,
       finInput,rentRollDate,rentRollIntro:introText,expenseProfile:expenseProfile.trim(),opexFootnote:opexFootnote.trim(),market,
       includeCashFlow,cashFlow:{items:cfItems,financingTerms:cfTerms},includeAerial,includeFloodMap,showPhotoLabels,logo:BW_LOGO,unitsHint};
     const mb=omMapBox(d,fin);const mapSrc=mapOverride||mapPhoto;
@@ -1853,16 +1899,16 @@ function App(){
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}><h3 style={{margin:0}}>CRM Photos{crmPhotos.length?" ("+crmPhotos.length+")":""}</h3>{loadingCrmPhotos&&<span className="spinner"/>}<div style={{flex:1}}/><button className="btn-dark btn-sm" onClick={()=>fetchCrmPhotos(importedLegacyId)} disabled={loadingCrmPhotos||!importedLegacyId}>Reload</button></div>
           {crmPhotos.length===0&&!loadingCrmPhotos&&<p className="hint">No CRM photos found for this listing. Upload below.</p>}
           {crmPhotos.length>0&&<div className="crm-grid">{crmPhotos.map((p,i)=><div key={i} style={{fontSize:10}}>
-            <div className="crm-thumb">{p.thumb?<img src={p.thumb} loading="lazy"/>:<span style={{color:"var(--sub)"}}>{p.heic?"iPhone photo (converts when added)":"no preview"}</span>}</div>
+            <div className="crm-thumb" draggable onDragStart={dragFrom({from:"crm",path:p.storage_path,name:p.name},"crm:"+i)} onDragEnd={()=>{setDndOver(null);setDndFrom(null)}} title="Drag onto a slot or the photo pages" style={{cursor:"grab"}}>{p.thumb?<img src={p.thumb} loading="lazy"/>:<span style={{color:"var(--sub)"}}>{p.heic?"iPhone photo (converts when added)":"no preview"}</span>}</div>
             <div className="ellipsis" title={p.name}>{p.name}</div>
             <select defaultValue="" onChange={e=>{if(e.target.value){assignCrmPhoto(p,e.target.value);e.target.value=""}}} style={{fontSize:10,padding:"3px 4px",marginTop:2}}>
               <option value="">Use as…</option><option value="cover">Cover (page 1)</option><option value="hero">Page 2 hero</option><option value="divider">Financial divider</option><option value="grid">Add to photo pages</option><option value="aerial">Aerial page</option><option value="flood">Flood map page</option>
             </select></div>)}</div>}
         </div>}
         <div className="grid3" style={{marginBottom:18}}>
-          <div className="section"><h3>Cover (page 1)</h3><PhotoUpload value={coverPhoto} onChange={setCoverPhoto} label="Best exterior shot" tall/></div>
-          <div className="section"><h3>Page 2 hero</h3><PhotoUpload value={heroPhoto} onChange={setHeroPhoto} label="Front elevation" tall/></div>
-          <div className="section"><h3>Financial divider</h3><PhotoUpload value={dividerPhoto} onChange={setDividerPhoto} label="Rear / alternate exterior" tall/></div>
+          <div className="section"><h3>Cover (page 1)</h3><PhotoUpload value={coverPhoto} onChange={setCoverPhoto} label="Best exterior shot" tall dnd={slotDnd("cover")}/></div>
+          <div className="section"><h3>Page 2 hero</h3><PhotoUpload value={heroPhoto} onChange={setHeroPhoto} label="Front elevation" tall dnd={slotDnd("hero")}/></div>
+          <div className="section"><h3>Financial divider</h3><PhotoUpload value={dividerPhoto} onChange={setDividerPhoto} label="Rear / alternate exterior" tall dnd={slotDnd("divider")}/></div>
         </div>
         <div className="card" style={{marginBottom:18}}>
           <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"flex-start"}}>
@@ -1883,8 +1929,8 @@ function App(){
           </div>
         </div>
         {(includeAerial||includeFloodMap)&&<div className="grid2" style={{marginBottom:18}}>
-          {includeAerial&&<div className="section"><h3>Aerial view</h3><PhotoUpload value={aerialPhoto} onChange={setAerialPhoto} label="Satellite / drone image"/></div>}
-          {includeFloodMap&&<div className="section"><h3>Flood map</h3><PhotoUpload value={floodMapPhoto} onChange={setFloodMapPhoto} label="FEMA flood map"/></div>}
+          {includeAerial&&<div className="section"><h3>Aerial view</h3><PhotoUpload value={aerialPhoto} onChange={setAerialPhoto} label="Satellite / drone image" dnd={slotDnd("aerial")}/></div>}
+          {includeFloodMap&&<div className="section"><h3>Flood map</h3><PhotoUpload value={floodMapPhoto} onChange={setFloodMapPhoto} label="FEMA flood map" dnd={slotDnd("flood")}/></div>}
         </div>}
         <div className="card" {...dropProps(addGridFiles)}>
           <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap"}}>
@@ -1894,12 +1940,14 @@ function App(){
             <label className="btn-red btn-sm file-btn">+ Add photos<input type="file" accept="image/*,.heic,.heif" multiple onChange={e=>{addGridFiles(e.target.files);e.target.value=""}}/></label>
             {gridPhotos.length>0&&<button className="btn-dark btn-sm" onClick={()=>setGridPhotos([])}>Clear</button>}
           </div>
-          <p className="hint" style={{margin:"8px 0 12px"}}>4 photos per page, in this order. Select or drag in as many photos as you like at once (they're added sorted by file name) and add more in batches. A last page with 2 or 3 photos uses a matching layout, never an empty square. Keep the cover/hero/divider shots out of this list.</p>
+          <p className="hint" style={{margin:"8px 0 12px"}}>4 photos per page, in this order. Drag a photo to move it (onto another photo to take its place, or onto the cover / page 2 / divider to swap); the arrows still work too. Select or drag in as many photos as you like at once (they're added sorted by file name) and add more in batches. A last page with 2 or 3 photos uses a matching layout, never an empty square. Keep the cover/hero/divider shots out of this list.</p>
           {Array.from({length:Math.ceil(gridPhotos.length/4)}).map((_,pi)=><div key={pi} className="grid-page">
             <div className="grid-page-h">Page {pi+1}{showPhotoLabels&&<input value={pageLabels[pi]||""} onChange={e=>{const n=[...pageLabels];n[pi]=e.target.value;setPageLabels(n)}} placeholder="Label, e.g. 8019 Trapier" style={{width:220,marginLeft:10}}/>}</div>
-            <div className="grid-thumbs">{gridPhotos.slice(pi*4,pi*4+4).map((src,j)=>{const i=pi*4+j;return <div key={i} className="grid-thumb"><img src={src}/>
+            <div className="grid-thumbs">{gridPhotos.slice(pi*4,pi*4+4).map((src,j)=>{const i=pi*4+j;const t=dropTarget("g"+i,pl=>dropOnGrid(i,pl));
+              return <div key={i} className={"grid-thumb"+(t.over?" dnd-over":"")+(dndFrom==="g"+i?" dnd-from":"")} draggable onDragStart={dragFrom({from:"grid",i},"g"+i)} onDragEnd={t.onDragEnd} onDragOver={t.onDragOver} onDragLeave={t.onDragLeave} onDrop={t.onDrop} title="Drag to reorder"><img src={src} draggable={false}/>
               <div className="grid-tools"><button onClick={()=>moveGrid(i,-1)} disabled={i===0}>◀</button><span>{i+1}</span><button onClick={()=>moveGrid(i,1)} disabled={i===gridPhotos.length-1}>▶</button><button onClick={()=>setGridPhotos(gridPhotos.filter((_,k)=>k!==i))}>×</button></div></div>})}</div>
           </div>)}
+          {gridPhotos.length<MAX_GRID&&(()=>{const t=dropTarget("gend",pl=>dropOnGrid(gridPhotos.length,pl));return <div className={"grid-end"+(t.over?" dnd-over":"")} onDragOver={t.onDragOver} onDragLeave={t.onDragLeave} onDrop={t.onDrop}>{gridPhotos.length?"Drop a photo here to put it last":"Drag photos here from the slots above or the CRM photos"}</div>})()}
         </div>
         {nav(2,4,"Next: Offering →")}
       </div>}
@@ -1927,18 +1975,19 @@ function App(){
       {/* STEP 5 — SUMMARY */}
       {step===5&&<div>
         <h2>Summary</h2>
-        <p className="lead">These numbers are calculated from Steps 1 and 6, so they always match the financial pages. Type in the override box only if you need different wording.</p>
+        <p className="lead">These numbers are calculated from Steps 1 and 6, so they always match the financial pages. Type in the override box only if you need different wording. Use × to take a row off the summary page.</p>
         <div className="grid2">
           {[["Left column",summaryRows.left],["Right column",summaryRows.right]].map(([t,rows])=><div key={t} className="card">
             <h3>{t}</h3>
             {rows.map(r=><div key={r.key} className="sum-row">
-              <div className="sum-l">{r.label}</div>
+              <div className="sum-l"><button className="sum-x" title="Remove from the summary" onClick={()=>removeSummaryRow(r.key)}>×</button>{r.label}</div>
               <div className="sum-v">{String(r.value).split("\n").map((x,i)=><div key={i}>{x}</div>)}</div>
               {r.key.charAt(0)!=="x"&&<input className="sum-o" placeholder="override" value={summaryOverrides[r.key]||""} onChange={e=>setSummaryOverrides({...summaryOverrides,[r.key]:e.target.value})}/>}
             </div>)}
           </div>)}
         </div>
-        {["price","ppsf","income","site","layouts","units","gba","occ","ipcap","pfcap"].filter(k=>!summaryRows.left.concat(summaryRows.right).some(r=>r.key===k)).length>0&&<p className="hint" style={{marginTop:8}}>Rows without a value are left off the page (fill in Steps 1 and 6 to add them).</p>}
+        {summaryHidden.length>0&&<div className="sum-removed">Removed from the summary: {summaryHidden.map(k=><button key={k} className="chip" onClick={()=>setSummaryHidden(summaryHidden.filter(x=>x!==k))} title="Put it back">{k==="price"?priceLabel:(SUMMARY_LABELS[k]||k)} ↺</button>)}</div>}
+        {["price","ppsf","income","site","layouts","units","gba","occ","ipcap","pfcap"].filter(k=>!summaryHidden.includes(k)&&!summaryRows.left.concat(summaryRows.right).some(r=>r.key===k)).length>0&&<p className="hint" style={{marginTop:8}}>Rows without a value are left off the page (fill in Steps 1 and 6 to add them).</p>}
         <div className="card" style={{marginTop:14}}>
           <label className="check"><input type="checkbox" checked={showPricePerUnit} onChange={e=>setShowPricePerUnit(e.target.checked)}/> Also show PRICE PER UNIT</label>
           <h3 style={{marginTop:12}}>Extra rows (optional)</h3>
